@@ -40,6 +40,9 @@ const generatorMessage = document.getElementById("generator-message");
 
 const goTopBtn = document.getElementById("go-top-btn");
 
+const ADMIN_KEY_STORAGE_KEY = "qb_admin_access_key";
+let adminAccessKey = String(localStorage.getItem(ADMIN_KEY_STORAGE_KEY) || "").trim();
+
 let generatedItems = [];
 let currentSearchIds = [];
 const selectedProblemIds = new Set();
@@ -65,6 +68,36 @@ function setGeneratorMessage(text, type = "") {
 function setBatchLabelMessage(text, type = "") {
   batchLabelMessage.textContent = text;
   batchLabelMessage.className = `message ${type}`.trim();
+}
+
+function promptAdminKeyIfNeeded() {
+  if (adminAccessKey) return true;
+  const input = window.prompt("Enter admin uploader key:");
+  if (input === null) return false;
+  adminAccessKey = String(input || "").trim();
+  localStorage.setItem(ADMIN_KEY_STORAGE_KEY, adminAccessKey);
+  return Boolean(adminAccessKey);
+}
+
+async function fetchJsonWithAdminKey(url, options = {}) {
+  if (!promptAdminKeyIfNeeded()) {
+    throw new Error("Admin key is required.");
+  }
+  const headers = {
+    ...(options.headers || {}),
+    "x-admin-key": adminAccessKey
+  };
+  const res = await fetch(url, { ...options, headers });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = String(data?.error || `Request failed (${res.status})`);
+    if (res.status === 403 && /uploader access denied/i.test(msg)) {
+      adminAccessKey = "";
+      localStorage.removeItem(ADMIN_KEY_STORAGE_KEY);
+    }
+    throw new Error(msg);
+  }
+  return data;
 }
 
 function escapeHtml(value) {
@@ -199,9 +232,7 @@ function updateRelabelAutocomplete() {
 }
 
 async function loadAutocompleteData() {
-  const res = await fetch("/api/problems");
-  if (!res.ok) return;
-  const problems = await res.json();
+  const problems = await fetchJsonWithAdminKey("/api/problems");
   rebuildAutocompleteIndex(Array.isArray(problems) ? problems : []);
 }
 
@@ -836,7 +867,7 @@ function renderProblems(problems) {
       if (!id) return;
       if (!confirm("Delete this problem?")) return;
 
-      await fetch(`/api/problems/${id}`, { method: "DELETE" });
+      await fetchJsonWithAdminKey(`/api/problems/${id}`, { method: "DELETE" });
       await loadProblems();
     });
   });
@@ -950,14 +981,14 @@ function renderProblems(problems) {
         grade: String(p.grade || "").trim()
       };
 
-      const res = await fetch(`/api/problems/${id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        setBatchLabelMessage(data.error || "Failed to save question.", "error");
+      try {
+        await fetchJsonWithAdminKey(`/api/problems/${id}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+      } catch (error) {
+        setBatchLabelMessage(error.message || "Failed to save question.", "error");
         return;
       }
 
@@ -1061,8 +1092,10 @@ async function loadProblems() {
   if (searchQ.value.trim()) params.set("q", searchQ.value.trim());
 
   const query = params.toString() ? `?${params.toString()}` : "";
-  const res = await fetch(`/api/problems${query}`);
-  const problems = await res.json();
+  const problems = await fetchJsonWithAdminKey(`/api/problems${query}`);
+  if (!Array.isArray(problems)) {
+    throw new Error("Invalid search response.");
+  }
 
   currentSearchIds = (problems || []).map((p) => Number(p.id)).filter((x) => Number.isInteger(x));
   selectedProblemIds.clear();
@@ -1150,15 +1183,15 @@ uploadBatchBtn.addEventListener("click", async () => {
     }))
   };
 
-  const res = await fetch("/api/problems/batch", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    setGeneratorMessage(data.error || "Upload failed.", "error");
+  let data;
+  try {
+    data = await fetchJsonWithAdminKey("/api/problems/batch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  } catch (error) {
+    setGeneratorMessage(error.message || "Upload failed.", "error");
     return;
   }
 
@@ -1176,7 +1209,14 @@ clearGeneratedBtn.addEventListener("click", () => {
   setGeneratorMessage("Cleared generated list.");
 });
 
-searchBtn.addEventListener("click", () => loadProblems());
+searchBtn.addEventListener("click", async () => {
+  try {
+    await loadProblems();
+  } catch (error) {
+    setMessage(error.message || "Search failed.", "error");
+    setBatchLabelMessage(error.message || "Search failed.", "error");
+  }
+});
 if (hideResultsBtn) {
   hideResultsBtn.addEventListener("click", () => {
     currentSearchIds = [];
@@ -1185,7 +1225,14 @@ if (hideResultsBtn) {
     setBatchLabelMessage("Results hidden.", "");
   });
 }
-refreshBtn.addEventListener("click", () => loadProblems());
+refreshBtn.addEventListener("click", async () => {
+  try {
+    await loadProblems();
+  } catch (error) {
+    setMessage(error.message || "Refresh failed.", "error");
+    setBatchLabelMessage(error.message || "Refresh failed.", "error");
+  }
+});
 
 batchLabelField.addEventListener("change", () => {
   renderBatchLabelValueInput();
@@ -1220,15 +1267,15 @@ applyBatchLabelBtn.addEventListener("click", async () => {
     return;
   }
 
-  const res = await fetch("/api/problems/batch-label", {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ ids, field, value })
-  });
-
-  const data = await res.json();
-  if (!res.ok) {
-    setBatchLabelMessage(data.error || "Batch update failed.", "error");
+  let data;
+  try {
+    data = await fetchJsonWithAdminKey("/api/problems/batch-label", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, field, value })
+    });
+  } catch (error) {
+    setBatchLabelMessage(error.message || "Batch update failed.", "error");
     return;
   }
 
