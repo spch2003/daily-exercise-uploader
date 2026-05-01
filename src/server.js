@@ -52,7 +52,7 @@ const supabase = hasCloudConfig
 app.use(express.json({ limit: "2mb" }));
 app.use((req, res, next) => {
   if (!isAdminUploadOnlyMode) return next();
-  if (req.path === "/" || req.path === "/index.html" || req.path === "/portal.html") {
+  if (req.path === "/portal.html") {
     return res.redirect("/question-bank.html");
   }
   if (req.path === "/portal.js" || req.path === "/portal.css") {
