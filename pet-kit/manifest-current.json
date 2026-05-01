@@ -1,0 +1,12 @@
+﻿{
+  "version": 3,
+  "pet_id": "default_pet_v3",
+  "base": "pet_base.glb",
+  "moods": {
+    "streak_broken": "pet_sad_broken.glb",
+    "streak_3d": "pet_happy_3d.glb",
+    "streak_7d": "pet_happy_7d.glb",
+    "streak_14d": "pet_happy_14d.glb"
+  },
+  "outfits": []
+}

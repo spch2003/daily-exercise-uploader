@@ -1,0 +1,15 @@
+﻿{
+  "name": "latex-problem-cloud-app",
+  "version": "1.0.0",
+  "description": "Web app to store LaTeX math problems with labels",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node src/server.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.54.0",
+    "dotenv": "^16.6.1",
+    "express": "^4.21.2"
+  }
+}

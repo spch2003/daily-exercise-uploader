@@ -1,0 +1,17 @@
+﻿{
+  "version": 2,
+  "pet_id": "default_pet_v2",
+  "base": "pet_base.glb",
+  "moods": {
+    "long_streak_happy": "pet_long_streak_happy.glb",
+    "short_streak_ok": "pet_short_streak_ok.glb",
+    "short_break_sad": "pet_short_break_sad.glb",
+    "long_break_unhappy": "pet_long_break_unhappy.glb"
+  },
+  "outfits": [
+    { "id": "school_uniform", "file": "outfit_school_uniform.glb", "name": "School Uniform" },
+    { "id": "sport", "file": "outfit_sport.glb", "name": "Sport" },
+    { "id": "formal", "file": "outfit_formal.glb", "name": "Formal" },
+    { "id": "fun", "file": "outfit_fun.glb", "name": "Fun" }
+  ]
+}

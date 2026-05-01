@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Math Problem Cloud App</title>
+    <link rel="stylesheet" href="https://tikzjax.com/v1/fonts.css" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="hero">
+        <h1>Math Problem Vault</h1>
+        <p>Store LaTeX problems with labels and search them quickly.</p>
+        <p><a href="/portal.html">Open Student/Teacher Portal</a></p>
+      </header>
+
+      <section class="panel">
+        <h2>Batch Labels</h2>
+        <div class="grid">
+          <label>
+            Difficulty
+            <select id="difficulty" name="difficulty"></select>
+          </label>
+          <label>
+            Question Type
+            <select id="question_type" name="question_type">
+              <option value="MC">MC</option>
+              <option value="Short Answer">Short Answer</option>
+            </select>
+          </label>
+          <label>
+            Grade
+            <select id="grade" name="grade"></select>
+          </label>
+        </div>
+        <div class="grid">
+          <label>
+            Topic
+            <input id="topic" name="topic" type="text" list="topic-options" placeholder="Algebra, Geometry, Number Theory" />
+          </label>
+          <label>
+            Sub-topic
+            <input id="sub_type" name="sub_type" type="text" list="subtopic-options" />
+          </label>
+        </div>
+        <datalist id="topic-options"></datalist>
+        <datalist id="subtopic-options"></datalist>
+        <p id="form-message" class="message"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Bulk Variants Upload</h2>
+        <div class="generator-controls">
+          <label>
+            Bulk Paste Variants
+            Use one line as `question_latex || solution_latex || answer_text` OR paste your LaTeX `\item` list directly. Use `\n` inside solution/answer for multi-line display.
+            <textarea id="bulk-variants-input" rows="5" placeholder="Let $x^2+5x+6=0$. A. $x=...$ B. $x=...$ C. $x=...$ D. $x=...$ || \text{Step 1: ...}\n\text{Step 2: ...} || C"></textarea>
+          </label>
+          <div class="button-row">
+            <button id="load-bulk-btn" type="button">Load Bulk Variants</button>
+            <button id="generate-solutions-btn" type="button">Generate Solutions (AI)</button>
+            <button id="upload-batch-btn" type="button">Upload Approved Batch</button>
+            <button id="clear-generated-btn" type="button" class="secondary-btn">Clear</button>
+          </div>
+        </div>
+        <p id="generator-message" class="message"></p>
+        <div id="generated-list" class="generated-list"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Search & Filter</h2>
+        <div class="grid">
+          <label>
+            Search text
+            <input id="search_q" type="text" placeholder="LaTeX, topic, or sub-type" />
+          </label>
+          <label>
+            Difficulty filter
+            <select id="filter_difficulty">
+              <option value="">All</option>
+            </select>
+          </label>
+          <label>
+            Grade filter
+            <select id="filter_grade">
+              <option value="">All</option>
+            </select>
+          </label>
+          <label>
+            Topic contains
+            <input id="filter_topic" type="text" list="filter-topic-options" placeholder="e.g. Calculus" />
+          </label>
+          <label>
+            Sub-topic contains
+            <input id="filter_sub_type" type="text" list="filter-subtopic-options" placeholder="e.g. Quadratic Equation" />
+          </label>
+        </div>
+        <datalist id="filter-topic-options"></datalist>
+        <datalist id="filter-subtopic-options"></datalist>
+        <div class="button-row">
+          <button id="search-btn" type="button">Search</button>
+          <button id="hide-results-btn" type="button" class="secondary-btn">Hide Results</button>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Batch Label Update</h2>
+        <div class="grid">
+          <label>
+            Label to change
+            <select id="batch-label-field">
+              <option value="difficulty">Difficulty</option>
+              <option value="question_type">Question Type</option>
+              <option value="topic">Topic</option>
+              <option value="sub_type">Sub-topic</option>
+              <option value="grade">Grade</option>
+            </select>
+          </label>
+          <label id="batch-label-select-wrap">
+            New value
+            <select id="batch-label-select"></select>
+          </label>
+          <label id="batch-label-text-wrap" style="display: none">
+            New value
+            <input id="batch-label-text" type="text" placeholder="Type new label" />
+          </label>
+        </div>
+        <div class="button-row">
+          <button id="select-all-btn" type="button">Select All Found</button>
+          <button id="select-none-btn" type="button" class="secondary-btn">Uncheck All</button>
+          <button id="apply-batch-label-btn" type="button">Confirm Change Label</button>
+        </div>
+        <p id="batch-label-message" class="message"></p>
+      </section>
+
+      <section class="panel">
+        <div class="list-header">
+          <h2>Saved Problems</h2>
+          <button id="refresh-btn" type="button">Refresh</button>
+        </div>
+        <div id="problem-list" class="problem-list"></div>
+      </section>
+    </main>
+    <button id="go-top-btn" class="go-top-btn" type="button" aria-label="Go to top">Top</button>
+
+    <script src="/app.js" defer></script>
+    <script>
+      window.MathJax = {
+        tex: {
+          inlineMath: [
+            ["$", "$"],
+            ["\\(", "\\)"]
+          ],
+          displayMath: [
+            ["$$", "$$"],
+            ["\\[", "\\]"]
+          ]
+        }
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="https://tikzjax.com/v1/tikzjax.js"></script>
+  </body>
+</html>

@@ -1,0 +1,1 @@
+﻿Same pet character design and proportions as the base pet, wearing [OUTFIT_NAME], keep face and body identity unchanged, stylized cute 3D, clean topology, game-ready, PBR, no background, full body centered, web-friendly GLB.

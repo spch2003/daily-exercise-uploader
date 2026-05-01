@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Question Bank Manager</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="hero">
+        <h1>Question Upload / Bank Manager</h1>
+        <p>Upload question sets to Supabase and manage existing questions.</p>
+        <p><a href="/">Back to Student/Teacher Portal</a></p>
+        <p>
+          <button id="admin-key-btn" type="button">Set Admin Key</button>
+          <span id="admin-key-note" style="margin-left: 10px;"></span>
+        </p>
+      </header>
+
+      <section class="card">
+        <h2>Batch Labels</h2>
+        <div class="auth-grid">
+          <label>Difficulty<select id="difficulty"></select></label>
+          <label>Question Type<select id="question_type"></select></label>
+          <label>Grade<select id="grade"></select></label>
+          <label>Topic<input id="topic" type="text" /></label>
+          <label>Sub-topic<input id="sub_type" type="text" /></label>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Bulk Upload</h2>
+        <label>
+          Paste one line per question: `question_latex || solution_latex || answer_text`
+          <textarea id="bulk-input" rows="8" placeholder="x^2+5x+6=0 || x=-2,-3 || -2,-3"></textarea>
+        </label>
+        <button id="upload-btn" type="button">Upload Batch</button>
+        <p id="upload-message" class="message"></p>
+      </section>
+
+      <section class="card">
+        <h2>Search Questions</h2>
+        <div class="auth-grid">
+          <label>Keyword<input id="q" type="text" /></label>
+          <label>Difficulty<select id="filter_difficulty"><option value="">All</option></select></label>
+          <label>Grade<select id="filter_grade"><option value="">All</option></select></label>
+        </div>
+        <button id="search-btn" type="button">Search</button>
+        <p id="search-message" class="message"></p>
+        <div id="result-list" class="question-list"></div>
+      </section>
+    </main>
+
+    <script type="module" src="/question-bank.js"></script>
+  </body>
+</html>

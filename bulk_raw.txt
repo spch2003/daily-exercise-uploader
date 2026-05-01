@@ -1,0 +1,499 @@
+The base of a solid right prism is a regular $6$-sided polygon of side $8$ cm. If the volume of the prism is $288 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $166 \text{ cm}^2$
+B. $249 \text{ cm}^2$
+C. $416 \text{ cm}^2$
+D. $748 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $6$-sided polygon. We divide it into $6$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 3.46) -- cycle;
+\draw[dashed] (0, 3.46) -- (0,0);
+\node[below] at (-1,0) {$4$};
+\node[below] at (1,0) {$4$};
+\node[right] at (0, 1.73) {$h_a$};
+\draw (0, 2.96) arc (270:300:0.5);
+\node[right] at (0.1, 2.76) {$30^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 6 = 60^\circ$, so the half-angle is $30^\circ$.
+The height of the triangle (apothem) is $h_a = 4 / \tan(30^\circ) = 6.928$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 8 \times 6.928 = 27.712 \text{ cm}^2$.
+Area of base = $6 \times 27.712 = 166.27 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $288 = 166.27 \times H$, giving $H = 1.732$ cm.
+Lateral Area = Perimeter $\times H = (6 \times 8) \times 1.732 = 83.14 \text{ cm}^2$.
+Total Surface Area = $2 \times 166.27 + 83.14 = 415.68 \text{ cm}^2$, nearest to $416 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $5$-sided polygon of side $10$ cm. If the volume of the prism is $500 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $285 \text{ cm}^2$
+B. $489 \text{ cm}^2$
+C. $542 \text{ cm}^2$
+D. $610 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $5$-sided polygon. We divide it into $5$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 2.75) -- cycle;
+\draw[dashed] (0, 2.75) -- (0,0);
+\node[below] at (-1,0) {$5$};
+\node[below] at (1,0) {$5$};
+\node[right] at (0, 1.38) {$h_a$};
+\draw (0, 2.25) arc (270:306:0.5);
+\node[right] at (0.1, 2.05) {$36^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 5 = 72^\circ$, so the half-angle is $36^\circ$.
+The height of the triangle is $h_a = 5 / \tan(36^\circ) = 6.882$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 10 \times 6.882 = 34.410 \text{ cm}^2$.
+Area of base = $5 \times 34.410 = 172.05 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $500 = 172.05 \times H$, giving $H = 2.906$ cm.
+Lateral Area = Perimeter $\times H = (5 \times 10) \times 2.906 = 145.30 \text{ cm}^2$.
+Total Surface Area = $2 \times 172.05 + 145.30 = 489.40 \text{ cm}^2$, nearest to $489 \text{ cm}^2$. || B
+
+The base of a solid right prism is a regular $8$-sided polygon of side $6$ cm. If the volume of the prism is $400 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $312 \text{ cm}^2$
+B. $415 \text{ cm}^2$
+C. $458 \text{ cm}^2$
+D. $520 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $8$-sided polygon. We divide it into $8$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 4.83) -- cycle;
+\draw[dashed] (0, 4.83) -- (0,0);
+\node[below] at (-1,0) {$3$};
+\node[below] at (1,0) {$3$};
+\node[right] at (0, 2.41) {$h_a$};
+\draw (0, 4.33) arc (270:292.5:0.5);
+\node[right] at (0.1, 4.13) {$22.5^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 8 = 45^\circ$, so the half-angle is $22.5^\circ$.
+The height of the triangle is $h_a = 3 / \tan(22.5^\circ) = 7.243$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 6 \times 7.243 = 21.729 \text{ cm}^2$.
+Area of base = $8 \times 21.729 = 173.83 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $400 = 173.83 \times H$, giving $H = 2.301$ cm.
+Lateral Area = Perimeter $\times H = (8 \times 6) \times 2.301 = 110.45 \text{ cm}^2$.
+Total Surface Area = $2 \times 173.83 + 110.45 = 458.11 \text{ cm}^2$, nearest to $458 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $10$-sided polygon of side $4$ cm. If the volume of the prism is $300 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $344 \text{ cm}^2$
+B. $405 \text{ cm}^2$
+C. $480 \text{ cm}^2$
+D. $512 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $10$-sided polygon. We divide it into $10$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 6.16) -- cycle;
+\draw[dashed] (0, 6.16) -- (0,0);
+\node[below] at (-1,0) {$2$};
+\node[below] at (1,0) {$2$};
+\node[right] at (0, 3.08) {$h_a$};
+\draw (0, 5.66) arc (270:288:0.5);
+\node[right] at (0.1, 5.46) {$18^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 10 = 36^\circ$, so the half-angle is $18^\circ$.
+The height of the triangle is $h_a = 2 / \tan(18^\circ) = 6.155$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 4 \times 6.155 = 12.310 \text{ cm}^2$.
+Area of base = $10 \times 12.310 = 123.10 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $300 = 123.10 \times H$, giving $H = 2.437$ cm.
+Lateral Area = Perimeter $\times H = (10 \times 4) \times 2.437 = 97.48 \text{ cm}^2$.
+Total Surface Area = $2 \times 123.10 + 97.48 = 343.68 \text{ cm}^2$, nearest to $344 \text{ cm}^2$. || A
+
+The base of a solid right prism is a regular $6$-sided polygon of side $12$ cm. If the volume of the prism is $1000 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $865 \text{ cm}^2$
+B. $902 \text{ cm}^2$
+C. $941 \text{ cm}^2$
+D. $1024 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $6$-sided polygon. We divide it into $6$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 3.46) -- cycle;
+\draw[dashed] (0, 3.46) -- (0,0);
+\node[below] at (-1,0) {$6$};
+\node[below] at (1,0) {$6$};
+\node[right] at (0, 1.73) {$h_a$};
+\draw (0, 2.96) arc (270:300:0.5);
+\node[right] at (0.1, 2.76) {$30^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 6 = 60^\circ$, so the half-angle is $30^\circ$.
+The height of the triangle is $h_a = 6 / \tan(30^\circ) = 10.392$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 12 \times 10.392 = 62.352 \text{ cm}^2$.
+Area of base = $6 \times 62.352 = 374.11 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $1000 = 374.11 \times H$, giving $H = 2.673$ cm.
+Lateral Area = Perimeter $\times H = (6 \times 12) \times 2.673 = 192.46 \text{ cm}^2$.
+Total Surface Area = $2 \times 374.11 + 192.46 = 940.68 \text{ cm}^2$, nearest to $941 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $5$-sided polygon of side $6$ cm. If the volume of the prism is $250 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $245 \text{ cm}^2$
+B. $280 \text{ cm}^2$
+C. $315 \text{ cm}^2$
+D. $360 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $5$-sided polygon. We divide it into $5$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 2.75) -- cycle;
+\draw[dashed] (0, 2.75) -- (0,0);
+\node[below] at (-1,0) {$3$};
+\node[below] at (1,0) {$3$};
+\node[right] at (0, 1.38) {$h_a$};
+\draw (0, 2.25) arc (270:306:0.5);
+\node[right] at (0.1, 2.05) {$36^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 5 = 72^\circ$, so the half-angle is $36^\circ$.
+The height of the triangle is $h_a = 3 / \tan(36^\circ) = 4.129$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 6 \times 4.129 = 12.387 \text{ cm}^2$.
+Area of base = $5 \times 12.387 = 61.94 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $250 = 61.94 \times H$, giving $H = 4.036$ cm.
+Lateral Area = Perimeter $\times H = (5 \times 6) \times 4.036 = 121.08 \text{ cm}^2$.
+Total Surface Area = $2 \times 61.94 + 121.08 = 244.96 \text{ cm}^2$, nearest to $245 \text{ cm}^2$. || A
+
+The base of a solid right prism is a regular $8$-sided polygon of side $10$ cm. If the volume of the prism is $800 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $966 \text{ cm}^2$
+B. $1098 \text{ cm}^2$
+C. $1245 \text{ cm}^2$
+D. $1320 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $8$-sided polygon. We divide it into $8$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 4.83) -- cycle;
+\draw[dashed] (0, 4.83) -- (0,0);
+\node[below] at (-1,0) {$5$};
+\node[below] at (1,0) {$5$};
+\node[right] at (0, 2.41) {$h_a$};
+\draw (0, 4.33) arc (270:292.5:0.5);
+\node[right] at (0.1, 4.13) {$22.5^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 8 = 45^\circ$, so the half-angle is $22.5^\circ$.
+The height of the triangle is $h_a = 5 / \tan(22.5^\circ) = 12.071$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 10 \times 12.071 = 60.355 \text{ cm}^2$.
+Area of base = $8 \times 60.355 = 482.84 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $800 = 482.84 \times H$, giving $H = 1.657$ cm.
+Lateral Area = Perimeter $\times H = (8 \times 10) \times 1.657 = 132.56 \text{ cm}^2$.
+Total Surface Area = $2 \times 482.84 + 132.56 = 1098.24 \text{ cm}^2$, nearest to $1098 \text{ cm}^2$. || B
+
+The base of a solid right prism is a regular $12$-sided polygon of side $5$ cm. If the volume of the prism is $600 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $540 \text{ cm}^2$
+B. $612 \text{ cm}^2$
+C. $688 \text{ cm}^2$
+D. $755 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $12$-sided polygon. We divide it into $12$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 7.46) -- cycle;
+\draw[dashed] (0, 7.46) -- (0,0);
+\node[below] at (-1,0) {$2.5$};
+\node[below] at (1,0) {$2.5$};
+\node[right] at (0, 3.73) {$h_a$};
+\draw (0, 6.96) arc (270:285:0.5);
+\node[right] at (0.1, 6.76) {$15^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 12 = 30^\circ$, so the half-angle is $15^\circ$.
+The height of the triangle is $h_a = 2.5 / \tan(15^\circ) = 9.330$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 5 \times 9.330 = 23.325 \text{ cm}^2$.
+Area of base = $12 \times 23.325 = 279.90 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $600 = 279.90 \times H$, giving $H = 2.144$ cm.
+Lateral Area = Perimeter $\times H = (12 \times 5) \times 2.144 = 128.64 \text{ cm}^2$.
+Total Surface Area = $2 \times 279.90 + 128.64 = 688.44 \text{ cm}^2$, nearest to $688 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $6$-sided polygon of side $10$ cm. If the volume of the prism is $500 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $520 \text{ cm}^2$
+B. $635 \text{ cm}^2$
+C. $750 \text{ cm}^2$
+D. $810 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $6$-sided polygon. We divide it into $6$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 3.46) -- cycle;
+\draw[dashed] (0, 3.46) -- (0,0);
+\node[below] at (-1,0) {$5$};
+\node[below] at (1,0) {$5$};
+\node[right] at (0, 1.73) {$h_a$};
+\draw (0, 2.96) arc (270:300:0.5);
+\node[right] at (0.1, 2.76) {$30^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 6 = 60^\circ$, so the half-angle is $30^\circ$.
+The height of the triangle is $h_a = 5 / \tan(30^\circ) = 8.660$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 10 \times 8.660 = 43.300 \text{ cm}^2$.
+Area of base = $6 \times 43.300 = 259.80 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $500 = 259.80 \times H$, giving $H = 1.925$ cm.
+Lateral Area = Perimeter $\times H = (6 \times 10) \times 1.925 = 115.50 \text{ cm}^2$.
+Total Surface Area = $2 \times 259.80 + 115.50 = 635.10 \text{ cm}^2$, nearest to $635 \text{ cm}^2$. || B
+
+The base of a solid right prism is a regular $5$-sided polygon of side $8$ cm. If the volume of the prism is $350 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $260 \text{ cm}^2$
+B. $315 \text{ cm}^2$
+C. $347 \text{ cm}^2$
+D. $412 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $5$-sided polygon. We divide it into $5$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 2.75) -- cycle;
+\draw[dashed] (0, 2.75) -- (0,0);
+\node[below] at (-1,0) {$4$};
+\node[below] at (1,0) {$4$};
+\node[right] at (0, 1.38) {$h_a$};
+\draw (0, 2.25) arc (270:306:0.5);
+\node[right] at (0.1, 2.05) {$36^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 5 = 72^\circ$, so the half-angle is $36^\circ$.
+The height of the triangle is $h_a = 4 / \tan(36^\circ) = 5.506$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 8 \times 5.506 = 22.024 \text{ cm}^2$.
+Area of base = $5 \times 22.024 = 110.12 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $350 = 110.12 \times H$, giving $H = 3.178$ cm.
+Lateral Area = Perimeter $\times H = (5 \times 8) \times 3.178 = 127.12 \text{ cm}^2$.
+Total Surface Area = $2 \times 110.12 + 127.12 = 347.36 \text{ cm}^2$, nearest to $347 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $8$-sided polygon of side $5$ cm. If the volume of the prism is $300 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $341 \text{ cm}^2$
+B. $385 \text{ cm}^2$
+C. $420 \text{ cm}^2$
+D. $475 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $8$-sided polygon. We divide it into $8$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 4.83) -- cycle;
+\draw[dashed] (0, 4.83) -- (0,0);
+\node[below] at (-1,0) {$2.5$};
+\node[below] at (1,0) {$2.5$};
+\node[right] at (0, 2.41) {$h_a$};
+\draw (0, 4.33) arc (270:292.5:0.5);
+\node[right] at (0.1, 4.13) {$22.5^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 8 = 45^\circ$, so the half-angle is $22.5^\circ$.
+The height of the triangle is $h_a = 2.5 / \tan(22.5^\circ) = 6.036$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 5 \times 6.036 = 15.090 \text{ cm}^2$.
+Area of base = $8 \times 15.090 = 120.72 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $300 = 120.72 \times H$, giving $H = 2.485$ cm.
+Lateral Area = Perimeter $\times H = (8 \times 5) \times 2.485 = 99.40 \text{ cm}^2$.
+Total Surface Area = $2 \times 120.72 + 99.40 = 340.84 \text{ cm}^2$, nearest to $341 \text{ cm}^2$. || A
+
+The base of a solid right prism is a regular $10$-sided polygon of side $6$ cm. If the volume of the prism is $450 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $520 \text{ cm}^2$
+B. $585 \text{ cm}^2$
+C. $651 \text{ cm}^2$
+D. $720 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $10$-sided polygon. We divide it into $10$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 6.16) -- cycle;
+\draw[dashed] (0, 6.16) -- (0,0);
+\node[below] at (-1,0) {$3$};
+\node[below] at (1,0) {$3$};
+\node[right] at (0, 3.08) {$h_a$};
+\draw (0, 5.66) arc (270:288:0.5);
+\node[right] at (0.1, 5.46) {$18^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 10 = 36^\circ$, so the half-angle is $18^\circ$.
+The height of the triangle is $h_a = 3 / \tan(18^\circ) = 9.233$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 6 \times 9.233 = 27.699 \text{ cm}^2$.
+Area of base = $10 \times 27.699 = 276.99 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $450 = 276.99 \times H$, giving $H = 1.625$ cm.
+Lateral Area = Perimeter $\times H = (10 \times 6) \times 1.625 = 97.50 \text{ cm}^2$.
+Total Surface Area = $2 \times 276.99 + 97.50 = 651.48 \text{ cm}^2$, nearest to $651 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $6$-sided polygon of side $14$ cm. If the volume of the prism is $1200 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $1018 \text{ cm}^2$
+B. $1150 \text{ cm}^2$
+C. $1216 \text{ cm}^2$
+D. $1342 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $6$-sided polygon. We divide it into $6$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 3.46) -- cycle;
+\draw[dashed] (0, 3.46) -- (0,0);
+\node[below] at (-1,0) {$7$};
+\node[below] at (1,0) {$7$};
+\node[right] at (0, 1.73) {$h_a$};
+\draw (0, 2.96) arc (270:300:0.5);
+\node[right] at (0.1, 2.76) {$30^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 6 = 60^\circ$, so the half-angle is $30^\circ$.
+The height of the triangle is $h_a = 7 / \tan(30^\circ) = 12.124$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 14 \times 12.124 = 84.868 \text{ cm}^2$.
+Area of base = $6 \times 84.868 = 509.21 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $1200 = 509.21 \times H$, giving $H = 2.357$ cm.
+Lateral Area = Perimeter $\times H = (6 \times 14) \times 2.357 = 197.99 \text{ cm}^2$.
+Total Surface Area = $2 \times 509.21 + 197.99 = 1216.41 \text{ cm}^2$, nearest to $1216 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $5$-sided polygon of side $12$ cm. If the volume of the prism is $700 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $540 \text{ cm}^2$
+B. $612 \text{ cm}^2$
+C. $665 \text{ cm}^2$
+D. $725 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $5$-sided polygon. We divide it into $5$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 2.75) -- cycle;
+\draw[dashed] (0, 2.75) -- (0,0);
+\node[below] at (-1,0) {$6$};
+\node[below] at (1,0) {$6$};
+\node[right] at (0, 1.38) {$h_a$};
+\draw (0, 2.25) arc (270:306:0.5);
+\node[right] at (0.1, 2.05) {$36^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 5 = 72^\circ$, so the half-angle is $36^\circ$.
+The height of the triangle is $h_a = 6 / \tan(36^\circ) = 8.258$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 12 \times 8.258 = 49.548 \text{ cm}^2$.
+Area of base = $5 \times 49.548 = 247.74 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $700 = 247.74 \times H$, giving $H = 2.826$ cm.
+Lateral Area = Perimeter $\times H = (5 \times 12) \times 2.826 = 169.56 \text{ cm}^2$.
+Total Surface Area = $2 \times 247.74 + 169.56 = 665.04 \text{ cm}^2$, nearest to $665 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $8$-sided polygon of side $8$ cm. If the volume of the prism is $600 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $742 \text{ cm}^2$
+B. $815 \text{ cm}^2$
+C. $890 \text{ cm}^2$
+D. $924 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $8$-sided polygon. We divide it into $8$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 4.83) -- cycle;
+\draw[dashed] (0, 4.83) -- (0,0);
+\node[below] at (-1,0) {$4$};
+\node[below] at (1,0) {$4$};
+\node[right] at (0, 2.41) {$h_a$};
+\draw (0, 4.33) arc (270:292.5:0.5);
+\node[right] at (0.1, 4.13) {$22.5^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 8 = 45^\circ$, so the half-angle is $22.5^\circ$.
+The height of the triangle is $h_a = 4 / \tan(22.5^\circ) = 9.657$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 8 \times 9.657 = 38.628 \text{ cm}^2$.
+Area of base = $8 \times 38.628 = 309.02 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $600 = 309.02 \times H$, giving $H = 1.942$ cm.
+Lateral Area = Perimeter $\times H = (8 \times 8) \times 1.942 = 124.29 \text{ cm}^2$.
+Total Surface Area = $2 \times 309.02 + 124.29 = 742.33 \text{ cm}^2$, nearest to $742 \text{ cm}^2$. || A
+
+The base of a solid right prism is a regular $12$-sided polygon of side $4$ cm. If the volume of the prism is $350 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $385 \text{ cm}^2$
+B. $452 \text{ cm}^2$
+C. $495 \text{ cm}^2$
+D. $530 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $12$-sided polygon. We divide it into $12$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 7.46) -- cycle;
+\draw[dashed] (0, 7.46) -- (0,0);
+\node[below] at (-1,0) {$2$};
+\node[below] at (1,0) {$2$};
+\node[right] at (0, 3.73) {$h_a$};
+\draw (0, 6.96) arc (270:285:0.5);
+\node[right] at (0.1, 6.76) {$15^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 12 = 30^\circ$, so the half-angle is $15^\circ$.
+The height of the triangle is $h_a = 2 / \tan(15^\circ) = 7.464$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 4 \times 7.464 = 14.928 \text{ cm}^2$.
+Area of base = $12 \times 14.928 = 179.14 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $350 = 179.14 \times H$, giving $H = 1.954$ cm.
+Lateral Area = Perimeter $\times H = (12 \times 4) \times 1.954 = 93.79 \text{ cm}^2$.
+Total Surface Area = $2 \times 179.14 + 93.79 = 452.07 \text{ cm}^2$, nearest to $452 \text{ cm}^2$. || B
+
+The base of a solid right prism is a regular $6$-sided polygon of side $6$ cm. If the volume of the prism is $200 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $195 \text{ cm}^2$
+B. $220 \text{ cm}^2$
+C. $264 \text{ cm}^2$
+D. $310 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $6$-sided polygon. We divide it into $6$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 3.46) -- cycle;
+\draw[dashed] (0, 3.46) -- (0,0);
+\node[below] at (-1,0) {$3$};
+\node[below] at (1,0) {$3$};
+\node[right] at (0, 1.73) {$h_a$};
+\draw (0, 2.96) arc (270:300:0.5);
+\node[right] at (0.1, 2.76) {$30^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 6 = 60^\circ$, so the half-angle is $30^\circ$.
+The height of the triangle is $h_a = 3 / \tan(30^\circ) = 5.196$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 6 \times 5.196 = 15.588 \text{ cm}^2$.
+Area of base = $6 \times 15.588 = 93.53 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $200 = 93.53 \times H$, giving $H = 2.138$ cm.
+Lateral Area = Perimeter $\times H = (6 \times 6) \times 2.138 = 76.97 \text{ cm}^2$.
+Total Surface Area = $2 \times 93.53 + 76.97 = 264.03 \text{ cm}^2$, nearest to $264 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $5$-sided polygon of side $4$ cm. If the volume of the prism is $100 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $95 \text{ cm}^2$
+B. $128 \text{ cm}^2$
+C. $160 \text{ cm}^2$
+D. $185 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $5$-sided polygon. We divide it into $5$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 2.75) -- cycle;
+\draw[dashed] (0, 2.75) -- (0,0);
+\node[below] at (-1,0) {$2$};
+\node[below] at (1,0) {$2$};
+\node[right] at (0, 1.38) {$h_a$};
+\draw (0, 2.25) arc (270:306:0.5);
+\node[right] at (0.1, 2.05) {$36^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 5 = 72^\circ$, so the half-angle is $36^\circ$.
+The height of the triangle is $h_a = 2 / \tan(36^\circ) = 2.753$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 4 \times 2.753 = 5.506 \text{ cm}^2$.
+Area of base = $5 \times 5.506 = 27.53 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $100 = 27.53 \times H$, giving $H = 3.632$ cm.
+Lateral Area = Perimeter $\times H = (5 \times 4) \times 3.632 = 72.64 \text{ cm}^2$.
+Total Surface Area = $2 \times 27.53 + 72.64 = 127.70 \text{ cm}^2$, nearest to $128 \text{ cm}^2$. || B
+
+The base of a solid right prism is a regular $8$-sided polygon of side $12$ cm. If the volume of the prism is $1200 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $1320 \text{ cm}^2$
+B. $1445 \text{ cm}^2$
+C. $1556 \text{ cm}^2$
+D. $1680 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $8$-sided polygon. We divide it into $8$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 4.83) -- cycle;
+\draw[dashed] (0, 4.83) -- (0,0);
+\node[below] at (-1,0) {$6$};
+\node[below] at (1,0) {$6$};
+\node[right] at (0, 2.41) {$h_a$};
+\draw (0, 4.33) arc (270:292.5:0.5);
+\node[right] at (0.1, 4.13) {$22.5^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 8 = 45^\circ$, so the half-angle is $22.5^\circ$.
+The height of the triangle is $h_a = 6 / \tan(22.5^\circ) = 14.485$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 12 \times 14.485 = 86.910 \text{ cm}^2$.
+Area of base = $8 \times 86.910 = 695.28 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $1200 = 695.28 \times H$, giving $H = 1.726$ cm.
+Lateral Area = Perimeter $\times H = (8 \times 12) \times 1.726 = 165.70 \text{ cm}^2$.
+Total Surface Area = $2 \times 695.28 + 165.70 = 1556.26 \text{ cm}^2$, nearest to $1556 \text{ cm}^2$. || C
+
+The base of a solid right prism is a regular $10$-sided polygon of side $8$ cm. If the volume of the prism is $800 \text{ cm}^3$, find the total surface area of the prism correct to the nearest $\text{cm}^2$.
+A. $940 \text{ cm}^2$
+B. $1025 \text{ cm}^2$
+C. $1115 \text{ cm}^2$
+D. $1205 \text{ cm}^2$ || To find the total surface area, we calculate the area of the base and the lateral surface area.
+The base is a regular $10$-sided polygon. We divide it into $10$ congruent triangles from the center.
+[TIKZ]
+\begin{tikzpicture}
+\draw (-2,0) -- (2,0) -- (0, 6.16) -- cycle;
+\draw[dashed] (0, 6.16) -- (0,0);
+\node[below] at (-1,0) {$4$};
+\node[below] at (1,0) {$4$};
+\node[right] at (0, 3.08) {$h_a$};
+\draw (0, 5.66) arc (270:288:0.5);
+\node[right] at (0.1, 5.46) {$18^\circ$};
+\end{tikzpicture}
+[/TIKZ]
+The central angle is $360^\circ / 10 = 36^\circ$, so the half-angle is $18^\circ$.
+The height of the triangle is $h_a = 4 / \tan(18^\circ) = 12.311$ cm.
+Area of one triangle = $1/2 \times \text{base} \times \text{height} = 1/2 \times 8 \times 12.311 = 49.244 \text{ cm}^2$.
+Area of base = $10 \times 49.244 = 492.44 \text{ cm}^2$.
+Volume = Base Area $\times$ Prism Height ($H$), so $800 = 492.44 \times H$, giving $H = 1.625$ cm.
+Lateral Area = Perimeter $\times H = (10 \times 8) \times 1.625 = 130.00 \text{ cm}^2$.
+Total Surface Area = $2 \times 492.44 + 130.00 = 1114.88 \text{ cm}^2$, nearest to $1115 \text{ cm}^2$. || C

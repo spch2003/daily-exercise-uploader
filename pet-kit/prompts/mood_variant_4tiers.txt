@@ -1,0 +1,10 @@
+﻿Same pet character identity as base model. Mood state: [MOOD_STATE].
+Keep same species, body proportions, and core face identity.
+Only adjust facial expression, ears/tail posture, and subtle pose.
+Stylized cute 3D, clean topology, game-ready, full body centered, no background, web-friendly GLB.
+
+Mood options:
+- long_streak_happy: very happy, sparkling eyes, confident upright pose, energetic
+- short_streak_ok: calm content, gentle smile, neutral relaxed pose
+- short_break_sad: slightly sad, lower ears/tail, worried eyes, mild slouch
+- long_break_unhappy: clearly unhappy, droopy posture, low energy, pout expression

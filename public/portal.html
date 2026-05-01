@@ -1,0 +1,415 @@
+﻿<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Student Exercise Portal</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/portal.css" />
+  </head>
+  <body>
+    <main class="container">
+      <header class="hero">
+        <h1>Daily Exercise Portal</h1>
+        <p>Students complete 5 assigned questions every day. Teachers track progress instantly.</p>
+      </header>
+
+      <section id="auth-card" class="card">
+        <h2>Sign In</h2>
+        <p id="school-note" class="hint"></p>
+
+        <div class="auth-grid">
+          <form id="signup-form" class="panel-form" action="javascript:void(0);">
+            <h3>Create Account</h3>
+            <label>
+              Full name
+              <input id="signup-name" type="text" required />
+            </label>
+            <label>
+              School email
+              <input id="signup-email" type="email" required />
+            </label>
+            <label>
+              Password
+              <input id="signup-password" type="password" minlength="8" required />
+            </label>
+            <label>
+              Grade (students only)
+              <input id="signup-grade" type="text" placeholder="F1, F2, Grade 9..." />
+            </label>
+            <label>
+              Class (students only)
+              <input id="signup-class" type="text" placeholder="e.g. 4A, 5B, S1A..." />
+            </label>
+            <button type="submit">Create account</button>
+          </form>
+
+          <form id="login-form" class="panel-form" action="javascript:void(0);">
+            <h3>Log In</h3>
+            <label>
+              School email
+              <input id="login-email" type="email" required />
+            </label>
+            <label>
+              Password
+              <input id="login-password" type="password" required />
+            </label>
+            <button type="submit">Log in</button>
+            <p class="hint auth-verify-note">For security, login email must match your browser Google account.</p>
+          </form>
+        </div>
+
+        <p id="auth-message" class="message"></p>
+      </section>
+
+      <section id="app-card" class="card" hidden>
+        <div class="top-row">
+          <div id="welcome-profile" class="welcome-profile">
+            <div class="welcome-avatar-wrap">
+              <div id="welcome-avatar-image" class="welcome-avatar-image clickable-avatar" role="button" tabindex="0" title="View owned characters & frames">🐾</div>
+            </div>
+            <div>
+              <h2 id="welcome-title"></h2>
+              <p id="welcome-subtitle" class="hint"></p>
+            </div>
+          </div>
+          <div class="inline-tools">
+            <button id="profile-daily-mission-btn" type="button" class="mission-btn" hidden>
+              Daily mission
+              <span id="profile-daily-mission-alert" class="mission-alert">!</span>
+            </button>
+            <div
+              id="top-token-badge"
+              class="diamond-badge"
+              hidden
+              title="Diamond rules: Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily streak bonus (finish >=5/day): 3d +5, 7d +10, 14d +20, 21d +40."
+            >
+              💎 0
+            </div>
+            <button id="top-shop-btn" class="secondary icon-top-btn" type="button" hidden title="Shop">🛒</button>
+            <button id="top-change-pw-btn" class="secondary icon-top-btn" type="button" hidden>⚙️</button>
+            <button id="logout-btn" class="secondary icon-top-btn" type="button">🚪</button>
+          </div>
+        </div>
+<section id="student-view" hidden>
+          <p id="student-message" class="message"></p>
+
+          <section id="student-daily-panel" class="floating-daily-overlay">
+            <button id="close-daily-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close daily">✕</button>
+            <div class="inline-tools">
+              <button id="daily-prev-btn" type="button" class="secondary">Previous</button>
+              <span id="daily-progress-label" class="stat">Question 1 / 5</span>
+              <button id="daily-next-btn" type="button" class="secondary">Next</button>
+              <button id="daily-go-review-btn" type="button" hidden>Daily Review</button>
+              <button id="daily-refresh-latest-btn" type="button" class="secondary" hidden>5 more questions</button>
+            </div>
+            <div id="student-list" class="question-list"></div>
+          </section>
+
+          <section id="student-profile-panel" class="subpanel" hidden>
+
+            <details class="subpanel" id="profile-stats-wrap">
+              <summary>Stats</summary>
+              <div id="student-stats" class="summary"></div>
+              <div class="subpanel">
+                <h4>Power Pentagon</h4>
+                <div id="student-radar-wrap" class="radar-wrap"></div>
+                <div id="student-class-titles" class="summary"></div>
+              </div>
+              <div class="subpanel">
+                <h4>Topic x Level Accuracy</h4>
+                <div id="student-topic-lv-matrix" class="table-wrap"></div>
+              </div>
+            </details>
+            <details class="subpanel" id="profile-review-wrap">
+              <summary>Review Answered Questions</summary>
+              <div class="top-row">
+                <div class="inline-tools">
+                  <select id="review-filter-lv">
+                    <option value="">All Lv</option>
+                  </select>
+                  <select id="review-filter-topic">
+                    <option value="">All Topics</option>
+                  </select>
+                  <select id="review-filter-result">
+                    <option value="">All</option>
+                    <option value="correct">Correct</option>
+                    <option value="wrong">Wrong</option>
+                  </select>
+                  <input id="review-filter-date" type="date" />
+                  <select id="review-sort-field">
+                    <option value="date">Sort: Date</option>
+                    <option value="difficulty">Sort: Lv</option>
+                    <option value="topic">Sort: Topic</option>
+                  </select>
+                  <select id="review-sort-order">
+                    <option value="desc">Desc</option>
+                    <option value="asc">Asc</option>
+                  </select>
+                  <button id="review-load-btn" type="button" class="filter-btn">Apply</button>
+                </div>
+              </div>
+              <div id="student-review-list" class="question-list"></div>
+            </details>
+          </section>
+
+          <section id="student-today-review-page" class="subpanel" hidden>
+            <h4>Today Review</h4>
+            <div id="daily-review-stats" class="summary"></div>
+            <div id="daily-review-list" class="question-list"></div>
+          </section>
+
+          <section id="student-avatar-shop-page" class="subpanel floating-shop-overlay" hidden>
+            <button id="close-avatar-shop-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close shop">✕</button>
+            <div class="top-row">
+              <h4>Treasure Shop</h4>
+            </div>
+            <div id="student-avatar-catalog"></div>
+            <div id="student-style-catalog" class="style-grid" hidden></div>
+          </section>
+
+          <section id="shop-preview-characters" class="subpanel floating-owned-overlay" hidden>
+            <button id="close-preview-characters-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close character preview">✕</button>
+            <div id="preview-characters-grid" class="preview-pic-grid"></div>
+          </section>
+
+          <section id="shop-preview-frames" class="subpanel floating-owned-overlay" hidden>
+            <button id="close-preview-frames-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close frame preview">✕</button>
+            <div id="preview-frames-grid" class="preview-pic-grid"></div>
+          </section>
+
+          <section id="shop-draw-reveal-overlay" class="subpanel floating-owned-overlay" hidden>
+            <button id="close-draw-reveal-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close draw result">✕</button>
+            <div id="shop-draw-reveal-content" class="draw-reveal-content"></div>
+          </section>
+
+          <section id="student-owned-overlay" class="subpanel floating-owned-overlay" hidden>
+            <button id="close-owned-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close owned collection">✕</button>
+            <h4>Your Collection</h4>
+            <div class="subpanel" style="margin-top:0.5rem;">
+              <h4>Owned Characters</h4>
+              <div id="owned-characters-list" class="avatar-grid"></div>
+            </div>
+            <div class="subpanel" style="margin-top:0.5rem;">
+              <h4>Owned Frames</h4>
+              <div id="owned-frames-list" class="style-grid"></div>
+            </div>
+          </section>
+
+          <section id="student-settings-page" class="subpanel floating-settings-overlay" hidden>
+            <button id="close-settings-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close settings">✕</button>
+            <h4>Settings</h4>
+            <div class="inline-tools">
+              <span class="hint">Theme</span>
+              <div class="mode-switch" aria-label="Theme mode switch">
+                <button id="theme-light-btn" type="button" class="mode-btn">Light</button>
+                <button id="theme-dark-btn" type="button" class="mode-btn">Dark</button>
+              </div>
+            </div>
+            <h4>Change Password</h4>
+            <div class="inline-tools">
+              <input id="change-pw-current" type="password" placeholder="Current password" />
+              <input id="change-pw-new" type="password" placeholder="New password (min 8 chars)" />
+              <button id="change-pw-btn" type="button">Update Password</button>
+            </div>
+            <p id="change-pw-message" class="message"></p>
+          </section>
+        </section>
+
+        <section id="teacher-view" hidden>
+          <div class="top-row">
+            <h3>Teacher Dashboard</h3>
+            <div class="inline-tools">
+              <div class="student-nav" aria-label="Teacher page switch">
+                <button id="teacher-dashboard-link" type="button" class="mode-btn">Dashboard</button>
+                <button id="teacher-batch-link" type="button" class="mode-btn">Batch Assign</button>
+                <button id="teacher-groups-link" type="button" class="mode-btn">Group Management</button>
+              </div>
+              <select id="teacher-dashboard-group-select">
+                <option value="">All Students</option>
+              </select>
+              <input id="teacher-date" type="date" />
+              <button id="load-overview-btn" type="button">Load Overview</button>
+            </div>
+          </div>
+          <p id="teacher-message" class="message"></p>
+          <div id="teacher-summary" class="summary"></div>
+          <div id="teacher-table-wrap" class="table-wrap"></div>
+        </section>
+
+        <section id="teacher-batch-page" hidden>
+          <div class="top-row">
+            <h3>Batch Assign Group</h3>
+            <div class="inline-tools">
+              <div class="student-nav" aria-label="Teacher page switch">
+                <button id="teacher-dashboard-link-3" type="button" class="mode-btn">Dashboard</button>
+                <button id="teacher-batch-link-2" type="button" class="mode-btn">Batch Assign</button>
+                <button id="teacher-groups-link-3" type="button" class="mode-btn">Group Management</button>
+              </div>
+            </div>
+          </div>
+          <p id="teacher-batch-message" class="message"></p>
+          <section class="subpanel">
+            <h4>Assign Selected Students To Group</h4>
+            <div class="inline-tools">
+              <select id="teacher-batch-group-select">
+                <option value="">Select a group</option>
+              </select>
+              <button id="teacher-select-all-students-btn" type="button" class="secondary">Select All Students</button>
+              <button id="teacher-clear-selected-students-btn" type="button" class="secondary">Clear Selection</button>
+              <button id="teacher-batch-assign-group-btn" type="button">Assign Group to Selected</button>
+            </div>
+          </section>
+          <div id="teacher-batch-table-wrap" class="table-wrap"></div>
+        </section>
+
+        <section id="teacher-group-page" hidden>
+          <div class="top-row">
+            <h3>Group Management</h3>
+            <div class="inline-tools">
+              <div class="student-nav" aria-label="Teacher page switch">
+                <button id="teacher-dashboard-link-2" type="button" class="mode-btn">Dashboard</button>
+                <button id="teacher-batch-link-3" type="button" class="mode-btn">Batch Assign</button>
+                <button id="teacher-groups-link-2" type="button" class="mode-btn">Group Management</button>
+              </div>
+            </div>
+          </div>
+          <p id="teacher-group-message" class="message"></p>
+          <section class="subpanel">
+            <h4>Group Management</h4>
+            <div class="inline-tools">
+              <input id="new-group-name" type="text" placeholder="New group name (e.g. 4A)" />
+              <button id="create-group-btn" type="button">Create Group</button>
+            </div>
+            <div class="inline-tools">
+              <select id="teacher-group-select">
+                <option value="">Select a group</option>
+              </select>
+              <button id="load-group-stats-btn" type="button">Load Group Stats</button>
+              <button id="teacher-group-select-all-btn" type="button" class="secondary">Select All Members</button>
+              <button id="teacher-group-clear-selected-btn" type="button" class="secondary">Clear Selection</button>
+              <button id="teacher-group-remove-selected-btn" type="button">Remove Selected</button>
+            </div>
+            <div id="teacher-group-stats" class="summary"></div>
+            <div class="subpanel">
+              <h4>Group Scope (Question Range)</h4>
+              <p class="hint">Each rule means: this topic is allowed from Min Lv to Max Lv. Topics not listed are blocked.</p>
+              <div class="inline-tools">
+                <select id="teacher-scope-min-difficulty">
+                  <option value="">Min Lv</option>
+                </select>
+                <select id="teacher-scope-max-difficulty">
+                  <option value="">Max Lv</option>
+                </select>
+                <select id="teacher-scope-topics" multiple size="6" aria-label="Select topics"></select>
+                <input id="teacher-scope-subtype" type="text" placeholder="Sub-topic (optional, apply to selected topics)" />
+                <button id="teacher-scope-add-btn" type="button">Add Scope</button>
+              </div>
+              <div id="teacher-scope-list" class="summary"></div>
+              <button id="teacher-scope-save-btn" type="button">Save Group Scope</button>
+            </div>
+            <div id="teacher-group-students" class="question-list"></div>
+          </section>
+        </section>
+
+        <section id="teacher-student-page" hidden>
+          <div class="top-row">
+            <h3 id="teacher-student-page-title">Student Profile</h3>
+            <button id="teacher-student-back-btn" type="button" class="secondary">Back to Dashboard</button>
+          </div>
+          <p id="teacher-student-page-message" class="message"></p>
+          <section class="subpanel">
+            <h4>Stats</h4>
+            <div id="teacher-student-page-stats" class="summary"></div>
+            <div class="subpanel">
+              <h4>Topic x Level Accuracy</h4>
+              <div id="teacher-student-topic-lv-matrix" class="table-wrap"></div>
+            </div>
+            <div class="subpanel">
+              <h4>Class Assignment</h4>
+              <div class="inline-tools">
+                <input id="teacher-student-class-input" type="text" placeholder="Class name (e.g. 4A)" />
+                <button id="teacher-student-save-class-btn" type="button">Save Class</button>
+              </div>
+            </div>
+            <div class="subpanel">
+              <h4>Assign Groups (Teacher Only)</h4>
+              <div id="teacher-student-group-assign" class="summary"></div>
+              <button id="teacher-student-save-groups-btn" type="button">Save Group Assignment</button>
+            </div>
+          </section>
+          <section class="subpanel">
+            <div class="top-row">
+              <h4>Answered Questions</h4>
+              <div class="inline-tools">
+                <select id="teacher-student-filter-lv">
+                  <option value="">All Lv</option>
+                </select>
+                <select id="teacher-student-filter-topic">
+                  <option value="">All Topics</option>
+                </select>
+                <select id="teacher-student-filter-result">
+                  <option value="">All</option>
+                  <option value="correct">Correct</option>
+                  <option value="wrong">Wrong</option>
+                </select>
+                <input id="teacher-student-filter-date" type="date" />
+                <button id="teacher-student-filter-apply-btn" type="button" class="filter-btn">Apply</button>
+              </div>
+            </div>
+            <div id="teacher-student-page-list" class="question-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+
+    <dialog id="wrong-feedback-dialog">
+      <form method="dialog" class="subpanel">
+        <h4>This answer is wrong</h4>
+        <p>Choose why. If you choose <strong>Careless Mistake</strong>, you must do <strong>1 extra question</strong> at the end today.</p>
+        <div class="inline-tools">
+          <button id="wrong-not-understand-btn" value="not_understand" type="submit">Not Understand</button>
+          <button id="wrong-careless-btn" value="careless" type="submit" class="secondary">Careless Mistake</button>
+        </div>
+      </form>
+    </dialog>
+
+    <script>
+      window.__portalBootErrors = [];
+      window.addEventListener("error", function (event) {
+        try {
+          window.__portalBootErrors.push(String(event.message || "Unknown script error"));
+        } catch (_e) {}
+      });
+      window.MathJax = {
+        tex: {
+          inlineMath: [
+            ["$", "$"],
+            ["\\(", "\\)"]
+          ],
+          displayMath: [
+            ["$$", "$$"],
+            ["\\[", "\\]"]
+          ]
+        },
+        chtml: {
+          linebreaks: {
+            automatic: true,
+            width: "container"
+          }
+        }
+      };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script src="/vendor/supabase.js?v=20260426g"></script>
+    <script src="/portal.js?v=20260426g"></script>
+    <script src="/login-fallback.js?v=20260426g"></script>
+  </body>
+</html>
+
+
+

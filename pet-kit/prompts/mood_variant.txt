@@ -1,0 +1,1 @@
+﻿Same pet character identity as base model, mood = [MOOD], subtle facial expression and pose change only, keep outfit neutral, stylized cute 3D, clean topology, game-ready, PBR, no background, full body centered, web-friendly GLB.
