@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node src/server.js"
+    "dev": "node src/server.js",
+    "migrate:tikz-svg": "node scripts/migrate-tikz-to-svg.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.54.0",

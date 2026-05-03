@@ -1,5 +1,7 @@
 ﻿const path = require("path");
 const express = require("express");
+const crypto = require("crypto");
+const zlib = require("zlib");
 const { createClient } = require("@supabase/supabase-js");
 require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 
@@ -17,6 +19,9 @@ const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || "").trim();
 const APP_MODE = String(process.env.APP_MODE || "").trim().toLowerCase();
 const ADMIN_ACCESS_KEY = String(process.env.ADMIN_ACCESS_KEY || "").trim();
 const DISABLE_SIGNUP = String(process.env.DISABLE_SIGNUP || "").trim().toLowerCase() === "true";
+const QUESTION_FIGURE_BUCKET = process.env.QUESTION_FIGURE_BUCKET || "question-figures";
+const KROKI_BASE_URL = process.env.KROKI_BASE_URL || "https://kroki.io";
+const AUTO_CONVERT_TIKZ = String(process.env.AUTO_CONVERT_TIKZ || "true").trim().toLowerCase() !== "false";
 const TEACHER_EMAILS = new Set(
   String(process.env.TEACHER_EMAILS || "")
     .split(",")
@@ -31,10 +36,17 @@ const REVIEW_INTERVAL_DAYS = {
   1: 1,
   2: 3,
   3: 7,
-  4: 21,
-  5: 60,
-  6: 180
+  4: 14,
+  5: 30
 };
+const PROGRESS_STATUS = {
+  UNKNOWN: "UNKNOWN",
+  KNOWN: "KNOWN",
+  MASTERED: "MASTERED",
+  BACKFILL: "BACKFILL",
+  FROZEN: "FROZEN"
+};
+const CARELESS_MIN_SECONDS = Math.max(0, Number(process.env.CARELESS_MIN_SECONDS || 10));
 const STARTER_TOKENS = 120;
 
 const hasCloudConfig = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -879,13 +891,33 @@ async function fetchProblemPoolForStudentGrade(studentGrade) {
 }
 
 async function fetchScopeRulesForStudent(studentId) {
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("class_name")
+    .eq("user_id", studentId)
+    .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
+
+  const ruleSets = [];
+  const className = String(profile?.class_name || "").trim();
+  if (className) {
+    const { data: classScopes, error: classScopeError } = await supabase
+      .from("class_scopes")
+      .select("difficulty,min_difficulty,max_difficulty,topic,sub_type")
+      .eq("class_name", className);
+    if (classScopeError) throw new Error(classScopeError.message);
+    if (Array.isArray(classScopes) && classScopes.length) {
+      ruleSets.push(classScopes.map(normalizeScopeRule));
+    }
+  }
+
   const { data: memberships, error: membershipError } = await supabase
     .from("student_group_memberships")
     .select("group_id")
     .eq("student_id", studentId);
   if (membershipError) throw new Error(membershipError.message);
   const groupIds = (memberships || []).map((m) => Number(m.group_id)).filter((x) => Number.isInteger(x) && x > 0);
-  if (!groupIds.length) return [];
+  if (!groupIds.length) return ruleSets;
 
   const { data: scopes, error: scopeError } = await supabase
     .from("study_group_scopes")
@@ -893,18 +925,26 @@ async function fetchScopeRulesForStudent(studentId) {
     .in("group_id", groupIds);
   if (scopeError) throw new Error(scopeError.message);
 
-  return (scopes || []).map((row) => ({
+  for (const groupId of groupIds) {
+    const groupRules = (scopes || []).filter((row) => Number(row.group_id) === Number(groupId)).map(normalizeScopeRule);
+    if (groupRules.length) ruleSets.push(groupRules);
+  }
+  return ruleSets;
+}
+
+function normalizeScopeRule(row) {
+  return {
     difficulty: String(row.difficulty || "").trim(),
     min_difficulty: String(row.min_difficulty || "").trim(),
     max_difficulty: String(row.max_difficulty || "").trim(),
     topic: String(row.topic || "").trim(),
     sub_type: String(row.sub_type || "").trim()
-  }));
+  };
 }
 
 function applyScopeRulesToProblemRows(problemRows, scopeRules) {
-  const rules = Array.isArray(scopeRules) ? scopeRules : [];
-  if (!rules.length) return problemRows;
+  const ruleSets = Array.isArray(scopeRules) ? scopeRules.filter((set) => Array.isArray(set) && set.length) : [];
+  if (!ruleSets.length) return problemRows;
 
   const diffIndex = new Map(DIFF.map((d, i) => [d, i]));
 
@@ -915,17 +955,19 @@ function applyScopeRulesToProblemRows(problemRows, scopeRules) {
     const rowDiffIdx = diffIndex.has(difficulty) ? diffIndex.get(difficulty) : -1;
     if (rowDiffIdx < 0) return false;
 
-    return rules.some((rule) => {
-      if (String(rule.topic || "").trim() !== topic) return false;
-      const ruleSub = String(rule.sub_type || "").trim();
-      if (ruleSub && ruleSub !== subType) return false;
-      const minDiff = String(rule.min_difficulty || "").trim() || DIFF[0];
-      const maxDiff = String(rule.max_difficulty || "").trim() || String(rule.difficulty || "").trim();
-      const minIdx = diffIndex.has(minDiff) ? diffIndex.get(minDiff) : 0;
-      const maxIdx = diffIndex.has(maxDiff) ? diffIndex.get(maxDiff) : -1;
-      if (maxIdx < 0) return false;
-      return rowDiffIdx >= minIdx && rowDiffIdx <= maxIdx;
-    });
+    return ruleSets.every((rules) =>
+      rules.some((rule) => {
+        if (String(rule.topic || "").trim() !== topic) return false;
+        const ruleSub = String(rule.sub_type || "").trim();
+        if (ruleSub && ruleSub !== subType) return false;
+        const minDiff = String(rule.min_difficulty || "").trim() || DIFF[0];
+        const maxDiff = String(rule.max_difficulty || "").trim() || String(rule.difficulty || "").trim();
+        const minIdx = diffIndex.has(minDiff) ? diffIndex.get(minDiff) : 0;
+        const maxIdx = diffIndex.has(maxDiff) ? diffIndex.get(maxDiff) : -1;
+        if (maxIdx < 0) return false;
+        return rowDiffIdx >= minIdx && rowDiffIdx <= maxIdx;
+      })
+    );
   });
 }
 
@@ -975,23 +1017,73 @@ async function fetchStudentLearningProgress(studentId) {
   return byKey;
 }
 
+function normalizeProgressStatus(row) {
+  const status = String(row?.status || "").trim().toUpperCase();
+  if (Object.values(PROGRESS_STATUS).includes(status)) return status;
+  if (row?.is_paused === true) return PROGRESS_STATUS.FROZEN;
+  if (row?.mastery_achieved === true && Number(row?.review_stage || 0) >= 5) return PROGRESS_STATUS.MASTERED;
+  if (row?.mastery_achieved === true || Number(row?.review_stage || 0) > 0) return PROGRESS_STATUS.KNOWN;
+  return PROGRESS_STATUS.UNKNOWN;
+}
+
+function makeDefaultProgressRow(studentId, combo, status = PROGRESS_STATUS.UNKNOWN) {
+  return {
+    student_id: studentId,
+    difficulty: combo.difficulty,
+    topic: combo.topic,
+    sub_type: combo.sub_type,
+    streak_correct: 0,
+    mastery_achieved: status === PROGRESS_STATUS.MASTERED,
+    review_stage: 0,
+    next_review_date: null,
+    consolidation_due_date: null,
+    correction_due_date: null,
+    correction_wrong_streak: 0,
+    ever_wrong: false,
+    is_paused: status === PROGRESS_STATUS.FROZEN,
+    pending_careless_retry: false,
+    careless_retry_date: null,
+    status,
+    consecutive_correct_count: 0,
+    last_correct_date: null,
+    wrong_count: 0,
+    backfill_correct_count: 0,
+    careless_streak: 0,
+    pending_retest_question_id: null,
+    done_variants: []
+  };
+}
+
 async function upsertStudentLearningProgress(row) {
+  const status = normalizeProgressStatus(row);
   const payload = {
     student_id: row.student_id,
     difficulty: row.difficulty,
     topic: row.topic,
     sub_type: row.sub_type,
-    streak_correct: Number(row.streak_correct || 0),
-    mastery_achieved: Boolean(row.mastery_achieved),
+    streak_correct: Number(row.streak_correct || row.consecutive_correct_count || 0),
+    mastery_achieved: status === PROGRESS_STATUS.MASTERED || Boolean(row.mastery_achieved),
     review_stage: Number(row.review_stage || 0),
     next_review_date: row.next_review_date || null,
     consolidation_due_date: row.consolidation_due_date || null,
     correction_due_date: row.correction_due_date || null,
     correction_wrong_streak: Number(row.correction_wrong_streak || 0),
     ever_wrong: Boolean(row.ever_wrong),
-    is_paused: Boolean(row.is_paused),
+    is_paused: status === PROGRESS_STATUS.FROZEN || Boolean(row.is_paused),
     pending_careless_retry: Boolean(row.pending_careless_retry),
-    careless_retry_date: row.careless_retry_date || null
+    careless_retry_date: row.careless_retry_date || null,
+    status,
+    consecutive_correct_count: Number(row.consecutive_correct_count || 0),
+    last_correct_date: row.last_correct_date || null,
+    wrong_count: Number(row.wrong_count || 0),
+    backfill_correct_count: Number(row.backfill_correct_count || 0),
+    careless_streak: Number(row.careless_streak || 0),
+    pending_retest_question_id:
+      Number.isInteger(Number(row.pending_retest_question_id)) && Number(row.pending_retest_question_id) > 0
+        ? Number(row.pending_retest_question_id)
+        : null,
+    done_variants: Array.isArray(row.done_variants) ? row.done_variants.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0) : [],
+    initial_assessment_done: Boolean(row.initial_assessment_done)
   };
 
   const { error } = await supabase.from("student_learning_progress").upsert(payload, {
@@ -1029,41 +1121,39 @@ function getUnlockedDifficulty(comboList, progressByKey) {
     if (!inLevel.length) continue;
     const allMastered = inLevel.every((c) => {
       const row = progressByKey.get(comboKey(c));
-      return row && row.mastery_achieved === true;
+      return row && normalizeProgressStatus(row) === PROGRESS_STATUS.MASTERED;
     });
     if (!allMastered) return diff;
   }
   return DIFF[DIFF.length - 1];
 }
 
-function pickQuestionForCombo(poolByCombo, combo, usedQuestionIds) {
-  const ids = (poolByCombo.get(comboKey(combo)) || []).filter((x) => Number.isInteger(Number(x)));
-  if (!ids.length) return null;
-  const fresh = ids.filter((id) => !usedQuestionIds.has(Number(id)));
-  return Number(pickRandomOne(fresh.length ? fresh : ids));
+async function markVariantDone(studentId, combo, progressByKey, questionId) {
+  const key = comboKey(combo);
+  const existing = progressByKey.get(key) || makeDefaultProgressRow(studentId, combo);
+  const done = Array.isArray(existing.done_variants) ? existing.done_variants.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0) : [];
+  if (!done.includes(Number(questionId))) done.push(Number(questionId));
+  const next = { ...existing, ...combo, student_id: studentId, done_variants: done };
+  progressByKey.set(key, next);
+  await upsertStudentLearningProgress(next);
 }
 
-async function deferOverflowReviews(studentId, overflowRows, dateString) {
-  const cappedRows = (overflowRows || []).slice(0, 30);
-  const updates = [];
-  for (const row of cappedRows) {
-    const stage = Number(row.review_stage || 0);
-    if (stage < 2) continue;
-    if (!isDateDue(row.next_review_date, dateString)) continue;
-    const delayDays = 1 + Math.floor(Math.random() * 3);
-    updates.push(
-      supabase
-        .from("student_learning_progress")
-        .update({ next_review_date: addDaysDateString(dateString, delayDays) })
-        .eq("student_id", studentId)
-        .eq("difficulty", String(row.difficulty || "").trim())
-        .eq("topic", String(row.topic || "").trim())
-        .eq("sub_type", String(row.sub_type || "").trim())
-    );
-  }
-  if (updates.length) {
-    await Promise.allSettled(updates);
-  }
+function pickQuestionForCombo(poolByCombo, combo, usedQuestionIds, doneVariants = []) {
+  const ids = (poolByCombo.get(comboKey(combo)) || []).filter((x) => Number.isInteger(Number(x)));
+  if (!ids.length) return null;
+  const blocked = new Set([...(usedQuestionIds || [])].map((x) => Number(x)));
+  const done = new Set((doneVariants || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0));
+  const fresh = ids.filter((id) => !blocked.has(Number(id)) && !done.has(Number(id)));
+  const unusedToday = ids.filter((id) => !blocked.has(Number(id)));
+  if (!unusedToday.length) return null;
+  return Number(pickRandomOne(fresh.length ? fresh : unusedToday));
+}
+
+function daysBetweenDateStrings(a, b) {
+  const da = new Date(`${String(a)}T00:00:00Z`);
+  const db = new Date(`${String(b)}T00:00:00Z`);
+  if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 0;
+  return Math.floor((db.getTime() - da.getTime()) / 86400000);
 }
 
 async function buildPriorityQuestionQueue(studentProfile, dateString, neededCount, usedQuestionIds) {
@@ -1087,194 +1177,97 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
     comboCountByKey.set(key, (comboCountByKey.get(key) || 0) + 1);
   };
 
-  const availableQuestionIdsForCombo = (combo) =>
-    (poolByCombo.get(comboKey(combo)) || [])
-      .map((x) => Number(x))
-      .filter((id) => Number.isInteger(id) && id > 0 && !usedQuestionIds.has(id));
-
-  const pushByComboIfPossible = (combo, priorityTag) => {
+  const pushByComboIfPossible = async (combo, priorityTag, options = {}) => {
     if (slotsLeft <= 0) return false;
-    const key = comboKey(combo);
     if (getComboCount(combo) >= 2) return false;
-    const questionId = pickQuestionForCombo(poolByCombo, combo, usedQuestionIds);
+    const row = progressByKey.get(comboKey(combo));
+    if (row && normalizeProgressStatus(row) === PROGRESS_STATUS.FROZEN) return false;
+    let questionId = Number(options.question_id || 0);
+    const comboIds = (poolByCombo.get(comboKey(combo)) || []).map((id) => Number(id));
+    if (Number.isInteger(questionId) && questionId > 0 && !comboIds.includes(questionId)) questionId = 0;
+    if (!Number.isInteger(questionId) || questionId <= 0 || usedQuestionIds.has(questionId)) {
+      const doneVariants = row?.done_variants || [];
+      questionId = pickQuestionForCombo(poolByCombo, combo, usedQuestionIds, doneVariants);
+    }
     if (!Number.isInteger(questionId) || questionId <= 0) return false;
     usedQuestionIds.add(questionId);
     bumpComboCount(combo);
     queue.push({ question_id: questionId, combo, priority: priorityTag });
+    await markVariantDone(studentId, combo, progressByKey, questionId);
     slotsLeft -= 1;
     return true;
   };
 
-  const pushBlock = (combo, priorityTag, blockSize, requireFullBlock) => {
-    const target = Math.min(Number(blockSize || 1), 2);
-    if (target <= 0) return 0;
-    if (requireFullBlock && slotsLeft < target) return 0;
-    const maxPossible = Math.min(target, slotsLeft);
-    if (availableQuestionIdsForCombo(combo).length <= 0) return 0;
-    let added = 0;
-    for (let i = 0; i < maxPossible; i += 1) {
-      const ok = pushByComboIfPossible(combo, priorityTag);
-      if (!ok) break;
-      added += 1;
-    }
-    return added;
-  };
+  const rowToCombo = (row) => ({ difficulty: row.difficulty, topic: row.topic, sub_type: row.sub_type });
+  const comboInPool = (combo) => (poolByCombo.get(comboKey(combo)) || []).length > 0;
 
-  // Priority 1: due reviews (single each).
-  const dueReviewRows = [...progressByKey.values()]
-    .filter((row) => !row.is_paused)
-    .filter((row) => Number(row.review_stage || 0) >= 1 && Number(row.review_stage || 0) <= 6)
-    .filter((row) => isDateDue(row.next_review_date, dateString));
+  // Priority 1: urgent careless retests, capped to 2 in one generation pass.
+  const urgentRows = [...progressByKey.values()]
+    .filter((row) => normalizeProgressStatus(row) !== PROGRESS_STATUS.FROZEN)
+    .filter((row) => row.pending_careless_retry === true)
+    .filter((row) => comboInPool(rowToCombo(row)))
+    .sort((a, b) => String(a.careless_retry_date || "").localeCompare(String(b.careless_retry_date || "")));
+  let urgentAdded = 0;
+  for (const row of urgentRows) {
+    if (slotsLeft <= 0 || urgentAdded >= 2) break;
+    const ok = await pushByComboIfPossible(rowToCombo(row), "urgent_retest", { question_id: Number(row.pending_retest_question_id || 0) });
+    if (ok) urgentAdded += 1;
+  }
 
-  const level1Rows = dueReviewRows.filter((row) => Number(row.review_stage || 0) === 1);
-  const level2PlusRows = dueReviewRows
-    .filter((row) => Number(row.review_stage || 0) >= 2)
+  // Priority 2: due Ebbinghaus reviews, T1/T2 first, then most overdue.
+  const reviewRows = [...progressByKey.values()]
+    .filter((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.KNOWN)
+    .filter((row) => isDateDue(row.next_review_date, dateString))
+    .filter((row) => comboInPool(rowToCombo(row)))
     .sort((a, b) => {
-      const aw = a.ever_wrong ? 1 : 0;
-      const bw = b.ever_wrong ? 1 : 0;
-      if (aw !== bw) return bw - aw;
-      const da = String(a.next_review_date || "");
-      const db = String(b.next_review_date || "");
-      if (da !== db) return da.localeCompare(db);
+      const earlyA = Number(a.review_stage || 0) <= 2 ? 0 : 1;
+      const earlyB = Number(b.review_stage || 0) <= 2 ? 0 : 1;
+      if (earlyA !== earlyB) return earlyA - earlyB;
+      const overdueA = daysBetweenDateStrings(a.next_review_date, dateString);
+      const overdueB = daysBetweenDateStrings(b.next_review_date, dateString);
+      if (overdueA !== overdueB) return overdueB - overdueA;
       return Number(a.review_stage || 0) - Number(b.review_stage || 0);
     });
-
-  for (const row of level1Rows) {
+  for (const row of reviewRows) {
     if (slotsLeft <= 0) break;
-    pushByComboIfPossible(
-      {
-        difficulty: row.difficulty,
-        topic: row.topic,
-        sub_type: row.sub_type
-      },
-      "review"
-    );
+    await pushByComboIfPossible(rowToCombo(row), "review");
   }
 
-  const remainingAfterLevel1 = Math.max(slotsLeft, 0);
-  const selectedLevel2Rows = level2PlusRows.slice(0, remainingAfterLevel1);
-  const overflowLevel2Rows = level2PlusRows.slice(remainingAfterLevel1);
-  for (const row of selectedLevel2Rows) {
-    if (slotsLeft <= 0) break;
-    pushByComboIfPossible(
-      {
-        difficulty: row.difficulty,
-        topic: row.topic,
-        sub_type: row.sub_type
-      },
-      "review"
-    );
-  }
-  await deferOverflowReviews(studentId, overflowLevel2Rows, dateString);
-
-  // Priority 2: corrections (2-in-row block).
-  const correctionRows = [...progressByKey.values()]
-    .filter((row) => !row.is_paused)
-    .filter((row) => Number(row.correction_wrong_streak || 0) < 3)
-    .filter((row) => isDateDue(row.correction_due_date, dateString))
-    .sort((a, b) => {
-      const da = String(a.correction_due_date || "");
-      const db = String(b.correction_due_date || "");
-      if (da !== db) return da.localeCompare(db);
-      return compareComboOrder(a, b);
-    });
-  for (const row of correctionRows) {
-    if (slotsLeft <= 0) break;
-    pushBlock(
-      {
-        difficulty: row.difficulty,
-        topic: row.topic,
-        sub_type: row.sub_type
-      },
-      "correction",
-      2,
-      true
-    );
-  }
-
-  // Priority 3: consolidation (single to chase 2-in-row).
-  const consolidationRows = [...progressByKey.values()]
-    .filter((row) => !row.is_paused)
-    .filter((row) => !row.mastery_achieved)
-    .filter((row) => Number(row.streak_correct || 0) === 1)
-    .filter((row) => isDateDue(row.consolidation_due_date, dateString))
-    .sort((a, b) => {
-      const da = String(a.consolidation_due_date || "");
-      const db = String(b.consolidation_due_date || "");
-      if (da !== db) return da.localeCompare(db);
-      return compareComboOrder(a, b);
-    });
-  for (const row of consolidationRows) {
-    if (slotsLeft <= 0) break;
-    pushByComboIfPossible(
-      {
-        difficulty: row.difficulty,
-        topic: row.topic,
-        sub_type: row.sub_type
-      },
-      "consolidation"
-    );
-  }
-
-  // Priority 4: new progression (up to 2 in same sub-topic, then move on).
+  // Priority 3: unlocked UNKNOWN progression. Cross-day second attempts go first.
   while (slotsLeft > 0) {
     const unlockedDifficulty = getUnlockedDifficulty(comboList, progressByKey);
     const unlockedCombos = comboList.filter((c) => c.difficulty === unlockedDifficulty);
-    const nextCombo = unlockedCombos.find((combo) => {
-      const row = progressByKey.get(comboKey(combo));
-      if (!row) return true;
-      if (row.is_paused) return false;
-      if (row.mastery_achieved) return false;
-      if (Number(row.review_stage || 0) > 0) return false;
-      if (isDateDue(row.correction_due_date, dateString) || isDateDue(row.consolidation_due_date, dateString)) return false;
-      return Number(row.streak_correct || 0) === 0;
-    });
-
-    if (!nextCombo) break;
-    const added = pushBlock(nextCombo, "new_topic", 2, false);
-    if (!added) break;
-    const key = comboKey(nextCombo);
-    if (!progressByKey.has(key)) {
-      const fresh = {
-        student_id: studentId,
-        difficulty: nextCombo.difficulty,
-        topic: nextCombo.topic,
-        sub_type: nextCombo.sub_type,
-        streak_correct: 0,
-        mastery_achieved: false,
-        review_stage: 0,
-        next_review_date: null,
-        consolidation_due_date: null,
-        correction_due_date: null,
-        correction_wrong_streak: 0,
-        ever_wrong: false,
-        is_paused: false,
-        pending_careless_retry: false,
-        careless_retry_date: null
-      };
-      progressByKey.set(key, fresh);
-      await upsertStudentLearningProgress(fresh);
-    }
-  }
-
-  // Final rescue fill: keep scope + pause rules, but relax progression priority to avoid hard fail.
-  if (slotsLeft > 0) {
-    const rescueCombos = comboList
+    const crossDayDue = unlockedCombos
       .filter((combo) => {
         const row = progressByKey.get(comboKey(combo));
-        return !row || !row.is_paused;
+        return (
+          row &&
+          normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN &&
+          Number(row.consecutive_correct_count || 0) === 1 &&
+          String(row.last_correct_date || "") &&
+          String(row.last_correct_date || "") < dateString
+        );
       })
       .sort(compareComboOrder);
+    const freshUnknown = unlockedCombos.filter((combo) => {
+      const row = progressByKey.get(comboKey(combo));
+      if (!row) return true;
+      return normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN && Number(row.consecutive_correct_count || 0) === 0;
+    });
+    const nextCombo = crossDayDue[0] || pickRandomOne(freshUnknown);
+    if (!nextCombo) break;
+    const ok = await pushByComboIfPossible(nextCombo, "unknown_progression");
+    if (!ok) break;
+  }
 
-    let progressed = true;
-    while (slotsLeft > 0 && progressed) {
-      progressed = false;
-      for (const combo of rescueCombos) {
-        if (slotsLeft <= 0) break;
-        const added = pushBlock(combo, "rescue", 1, false);
-        if (added > 0) progressed = true;
-      }
-    }
+  // Priority 4: BACKFILL, lower levels first.
+  const backfillRows = [...progressByKey.values()]
+    .filter((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.BACKFILL)
+    .filter((row) => comboInPool(rowToCombo(row)))
+    .sort(compareComboOrder);
+  for (const row of backfillRows) {
+    if (slotsLeft <= 0) break;
+    await pushByComboIfPossible(rowToCombo(row), "backfill");
   }
 
   return queue.slice(0, neededCount);
@@ -1400,6 +1393,143 @@ async function refreshTodayAssignmentsByLatestRules(studentProfile, dateString, 
   return await appendAssignmentsForStudentDateWithBlocked(studentProfile, dateString, targetCount, blockedQuestionIds);
 }
 
+async function hasCompletedInitialAssessment(studentId) {
+  const { data, error } = await supabase
+    .from("student_initial_assessments")
+    .select("student_id,start_difficulty,lv2_correct,lv3_correct,lv4_correct,lv5_correct,completed_at")
+    .eq("student_id", studentId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data || null;
+}
+
+async function buildInitialAssessmentQuestions(studentProfile) {
+  const rows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
+  const output = [];
+  const usedTopicKeys = new Set();
+  const usedSubtopicKeys = new Set();
+  const usedIds = new Set();
+  const topicKeyFor = (row, id) => String(row?.topic || "").trim().toLowerCase() || `blank-topic-${id}`;
+  const subtopicKeyFor = (row, id) => {
+    const topic = topicKeyFor(row, id);
+    const subType = String(row?.sub_type || "").trim().toLowerCase() || `blank-subtopic-${id}`;
+    return `${topic}|||${subType}`;
+  };
+  const rememberInitialAssessmentPick = (pool, id) => {
+    const row = pool.find((item) => Number(item.id) === Number(id));
+    output.push(id);
+    usedIds.add(id);
+    usedTopicKeys.add(topicKeyFor(row, id));
+    usedSubtopicKeys.add(subtopicKeyFor(row, id));
+  };
+  for (const difficulty of ["lv2", "lv3", "lv4", "lv5"]) {
+    const pool = rows.filter((row) => String(row.difficulty || "").trim() === difficulty);
+    const preferred = pickRandomIds(
+      pool
+        .filter((row) => {
+          const id = Number(row.id);
+          return (
+            Number.isInteger(id) &&
+            id > 0 &&
+            !usedIds.has(id) &&
+            !usedTopicKeys.has(topicKeyFor(row, id)) &&
+            !usedSubtopicKeys.has(subtopicKeyFor(row, id))
+          );
+        })
+        .map((row) => Number(row.id)),
+      3
+    );
+    for (const id of preferred) {
+      rememberInitialAssessmentPick(pool, id);
+    }
+
+    if (preferred.length < 3) {
+      const subtopicFallback = pickRandomIds(
+        pool
+          .filter((row) => {
+            const id = Number(row.id);
+            return Number.isInteger(id) && id > 0 && !usedIds.has(id) && !usedSubtopicKeys.has(subtopicKeyFor(row, id));
+          })
+          .map((row) => Number(row.id)),
+        3 - preferred.length
+      );
+      for (const id of subtopicFallback) {
+        rememberInitialAssessmentPick(pool, id);
+      }
+    }
+
+    const pickedForDifficulty = output.filter((id) => {
+      const row = rows.find((item) => Number(item.id) === Number(id));
+      return String(row?.difficulty || "").trim() === difficulty;
+    }).length;
+    if (pickedForDifficulty < 3) {
+      const fallback = pickRandomIds(
+        pool
+          .map((row) => Number(row.id))
+          .filter((id) => Number.isInteger(id) && id > 0 && !usedIds.has(id)),
+        3 - pickedForDifficulty
+      );
+      for (const id of fallback) {
+        rememberInitialAssessmentPick(pool, id);
+      }
+    }
+  }
+  if (output.length < 12) throw new Error("Not enough questions for initial assessment.");
+
+  const { data, error } = await supabase
+    .from("problems")
+    .select("id,latex_code,question_type,difficulty,topic,sub_type,grade")
+    .in("id", output);
+  if (error) throw new Error(error.message);
+  const byId = new Map((data || []).map((row) => [Number(row.id), row]));
+  return pickRandomIds(output, output.length)
+    .map((id) => byId.get(Number(id)))
+    .filter(Boolean);
+}
+
+async function initializeProgressFromAssessment(studentProfile, counts) {
+  const studentId = studentProfile.user_id;
+  const lv2 = Number(counts.lv2 || 0);
+  const lv3 = Number(counts.lv3 || 0);
+  const lv4 = Number(counts.lv4 || 0);
+  let startDifficulty = "lv2";
+  const backfillDiffs = [];
+  if (lv2 >= 3 && lv3 >= 3 && lv4 >= 1) {
+    startDifficulty = "lv4";
+    backfillDiffs.push("lv2", "lv3");
+  } else if (lv2 >= 3) {
+    startDifficulty = "lv3";
+    backfillDiffs.push("lv2");
+  }
+
+  const allRows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
+  const { comboList } = buildProblemPoolIndex(allRows);
+  const upserts = [];
+  for (const combo of comboList) {
+    if (combo.difficulty === startDifficulty) {
+      upserts.push(upsertStudentLearningProgress({ ...makeDefaultProgressRow(studentId, combo, PROGRESS_STATUS.UNKNOWN), initial_assessment_done: true }));
+    } else if (backfillDiffs.includes(combo.difficulty)) {
+      upserts.push(upsertStudentLearningProgress({ ...makeDefaultProgressRow(studentId, combo, PROGRESS_STATUS.BACKFILL), initial_assessment_done: true }));
+    }
+  }
+  await Promise.all(upserts);
+
+  const { error } = await supabase.from("student_initial_assessments").upsert(
+    {
+      student_id: studentId,
+      lv2_correct: lv2,
+      lv3_correct: lv3,
+      lv4_correct: lv4,
+      lv5_correct: Number(counts.lv5 || 0),
+      start_difficulty: startDifficulty,
+      completed_at: new Date().toISOString()
+    },
+    { onConflict: "student_id" }
+  );
+  if (error) throw new Error(error.message);
+  return { start_difficulty: startDifficulty, backfill_difficulties: backfillDiffs };
+}
+
 function norm(body) {
   return {
     latex_code: (body.latex_code || "").trim(),
@@ -1411,6 +1541,145 @@ function norm(body) {
     sub_type: (body.sub_type || "").trim(),
     grade: (body.grade || "").trim()
   };
+}
+
+function hasTikz(text) {
+  return /\[TIKZ\][\s\S]*?\[\/TIKZ\]/i.test(String(text || "")) ||
+    /\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\}/.test(String(text || ""));
+}
+
+function normalizeTikz(block) {
+  return String(block || "")
+    .trim()
+    .replace(/\\n(?![A-Za-z])/g, "\n");
+}
+
+function wrapTikzLatexDocument(tikzSource) {
+  const source = normalizeTikz(tikzSource);
+  if (/\\begin\{document\}/.test(source)) return source;
+  return [
+    "\\documentclass[tikz,border=2pt]{standalone}",
+    "\\usepackage{amsmath}",
+    "\\usepackage{tikz}",
+    "\\usetikzlibrary{angles,quotes,calc,arrows.meta,positioning,decorations.pathreplacing}",
+    "\\begin{document}",
+    source,
+    "\\end{document}"
+  ].join("\n");
+}
+
+function toBase64Url(buffer) {
+  return buffer
+    .toString("base64")
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/g, "");
+}
+
+function buildKrokiTikzSvgUrl(tikzSource) {
+  const latexDoc = wrapTikzLatexDocument(tikzSource);
+  const compressed = zlib.deflateSync(Buffer.from(latexDoc, "utf8"), { level: 9 });
+  return `${KROKI_BASE_URL.replace(/\/+$/g, "")}/tikz/svg/${toBase64Url(compressed)}`;
+}
+
+function hashText(text) {
+  return crypto.createHash("sha256").update(String(text || "")).digest("hex").slice(0, 16);
+}
+
+function sanitizeSvg(svg) {
+  const value = String(svg || "").trim();
+  if (!value.includes("<svg")) throw new Error("Renderer did not return SVG content.");
+  return value;
+}
+
+async function ensureQuestionFigureBucket() {
+  const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+  if (listError) throw listError;
+  if ((buckets || []).some((bucket) => bucket.name === QUESTION_FIGURE_BUCKET)) return;
+
+  const { error } = await supabase.storage.createBucket(QUESTION_FIGURE_BUCKET, {
+    public: true,
+    fileSizeLimit: 1024 * 1024,
+    allowedMimeTypes: ["image/svg+xml"]
+  });
+  if (error && !/already exists/i.test(error.message || "")) throw error;
+}
+
+async function renderTikzToSvg(tikzSource) {
+  const response = await fetch(buildKrokiTikzSvgUrl(tikzSource), {
+    headers: { Accept: "image/svg+xml" }
+  });
+  const body = await response.text();
+  if (!response.ok) {
+    throw new Error(`TikZ render failed (${response.status}): ${body.slice(0, 180)}`);
+  }
+  return sanitizeSvg(body);
+}
+
+async function uploadGeneratedSvg(tikzSource, svg) {
+  const fileHash = hashText(tikzSource);
+  const objectPath = `generated/${fileHash}.svg`;
+  const { error } = await supabase.storage.from(QUESTION_FIGURE_BUCKET).upload(objectPath, svg, {
+    contentType: "image/svg+xml",
+    cacheControl: "31536000",
+    upsert: true
+  });
+  if (error) throw error;
+
+  const { data } = supabase.storage.from(QUESTION_FIGURE_BUCKET).getPublicUrl(objectPath);
+  if (!data?.publicUrl) throw new Error(`Could not build public URL for ${objectPath}`);
+  return data.publicUrl;
+}
+
+async function replaceTikzWithSvgFigures(text) {
+  if (!hasTikz(text)) return { text: String(text || ""), figureCount: 0 };
+
+  await ensureQuestionFigureBucket();
+  const source = String(text || "");
+  const pattern = /\[TIKZ\]([\s\S]*?)\[\/TIKZ\]|(\\begin\{tikzpicture\}[\s\S]*?\\end\{tikzpicture\})/gi;
+  let cursor = 0;
+  let output = "";
+  let figureCount = 0;
+  let match;
+
+  while ((match = pattern.exec(source))) {
+    output += source.slice(cursor, match.index);
+    const tikzSource = normalizeTikz(match[1] || match[2] || "");
+    const svg = await renderTikzToSvg(tikzSource);
+    const publicUrl = await uploadGeneratedSvg(tikzSource, svg);
+    output += `[FIGURE:${publicUrl}]`;
+    figureCount += 1;
+    cursor = pattern.lastIndex;
+  }
+  output += source.slice(cursor);
+  return { text: output, figureCount };
+}
+
+async function prepareProblemFigures(problem) {
+  if (!AUTO_CONVERT_TIKZ) return { problem, converted_figures: 0 };
+
+  const hasQuestionTikz = hasTikz(problem.latex_code);
+  const hasSolutionTikz = hasTikz(problem.solution_latex);
+  if (!hasQuestionTikz && !hasSolutionTikz) return { problem, converted_figures: 0 };
+
+  const next = { ...problem };
+  let converted_figures = 0;
+
+  if (hasQuestionTikz) {
+    next.latex_code_original = problem.latex_code;
+    const result = await replaceTikzWithSvgFigures(problem.latex_code);
+    next.latex_code = result.text.trim();
+    converted_figures += result.figureCount;
+  }
+
+  if (hasSolutionTikz) {
+    next.solution_latex_original = problem.solution_latex;
+    const result = await replaceTikzWithSvgFigures(problem.solution_latex);
+    next.solution_latex = result.text.trim();
+    converted_figures += result.figureCount;
+  }
+
+  return { problem: next, converted_figures };
 }
 
 function validateLabels(p) {
@@ -1435,6 +1704,8 @@ function isMissingSolutionColumn(error) {
   const message = (error && error.message) || "";
   return (
     message.toLowerCase().includes("solution_latex") ||
+    message.toLowerCase().includes("latex_code_original") ||
+    message.toLowerCase().includes("solution_latex_original") ||
     message.toLowerCase().includes("answer_text") ||
     message.toLowerCase().includes("question_type")
   );
@@ -1444,6 +1715,8 @@ async function insertWithSolutionFallback(problem) {
   const payload = {
     latex_code: problem.latex_code,
     solution_latex: problem.solution_latex || null,
+    latex_code_original: problem.latex_code_original || null,
+    solution_latex_original: problem.solution_latex_original || null,
     answer_text: problem.answer_text || null,
     question_type: problem.question_type,
     difficulty: problem.difficulty,
@@ -1472,6 +1745,8 @@ async function updateWithSolutionFallback(id, problem) {
   const payload = {
     latex_code: problem.latex_code,
     solution_latex: problem.solution_latex || null,
+    latex_code_original: problem.latex_code_original || null,
+    solution_latex_original: problem.solution_latex_original || null,
     answer_text: problem.answer_text || null,
     question_type: problem.question_type,
     difficulty: problem.difficulty,
@@ -1500,6 +1775,8 @@ async function batchInsertWithSolutionFallback(baseLabels, items) {
   const withSolution = items.map((item) => ({
     latex_code: item.latex_code,
     solution_latex: item.solution_latex || null,
+    latex_code_original: item.latex_code_original || null,
+    solution_latex_original: item.solution_latex_original || null,
     answer_text: item.answer_text || null,
     question_type: baseLabels.question_type,
     difficulty: baseLabels.difficulty,
@@ -1796,23 +2073,7 @@ async function findProgressRow(studentId, combo) {
     .maybeSingle();
   if (error) throw new Error(error.message);
   if (data) return data;
-  return {
-    student_id: studentId,
-    difficulty: combo.difficulty,
-    topic: combo.topic,
-    sub_type: combo.sub_type,
-    streak_correct: 0,
-    mastery_achieved: false,
-    review_stage: 0,
-    next_review_date: null,
-    consolidation_due_date: null,
-    correction_due_date: null,
-    correction_wrong_streak: 0,
-    ever_wrong: false,
-    is_paused: false,
-    pending_careless_retry: false,
-    careless_retry_date: null
-  };
+  return makeDefaultProgressRow(studentId, combo);
 }
 
 async function hasOpenAlertForCombo(studentId, combo) {
@@ -1831,7 +2092,7 @@ async function hasOpenAlertForCombo(studentId, combo) {
 
 async function appendCarelessRetryAssignment(studentProfile, assignmentDate, combo) {
   const studentId = String(studentProfile.user_id || "").trim();
-  if (!studentId) return;
+  if (!studentId) return null;
 
   const assignments = await getAssignmentsForDate(studentId, assignmentDate);
   const usedQuestionIds = new Set(assignments.map((a) => Number(a.question_id)));
@@ -1839,22 +2100,13 @@ async function appendCarelessRetryAssignment(studentProfile, assignmentDate, com
   const allRows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
   const problemRows = applyScopeRulesToProblemRows(allRows, scopeRules);
   const { byCombo } = buildProblemPoolIndex(problemRows);
-  const questionId = pickQuestionForCombo(byCombo, combo, usedQuestionIds);
-  if (!Number.isInteger(questionId) || questionId <= 0) return;
-
-  const slot = assignments.length + 1;
-  const { error } = await supabase.from("daily_assignments").insert({
-    student_id: studentId,
-    assignment_date: assignmentDate,
-    question_id: questionId,
-    slot
-  });
-  if (error && String(error.code || "") !== "23505") {
-    throw new Error(error.message);
-  }
+  const progress = await findProgressRow(studentId, combo);
+  const questionId = pickQuestionForCombo(byCombo, combo, usedQuestionIds, progress.done_variants || []);
+  if (!Number.isInteger(questionId) || questionId <= 0) return null;
+  return questionId;
 }
 
-async function updateLearningProgressAfterSubmission(studentProfile, assignmentDate, problemRow, isCorrect, carelessError) {
+async function updateLearningProgressAfterSubmission(studentProfile, assignmentDate, problemRow, isCorrect, carelessError, timeSpentSeconds = 0) {
   const combo = {
     difficulty: String(problemRow?.difficulty || "").trim(),
     topic: String(problemRow?.topic || "").trim(),
@@ -1865,111 +2117,249 @@ async function updateLearningProgressAfterSubmission(studentProfile, assignmentD
   const studentId = studentProfile.user_id;
   const progress = await findProgressRow(studentId, combo);
   const next = { ...progress };
+  const questionId = Number(problemRow?.id || 0);
+  const status = normalizeProgressStatus(next);
+  const isPendingRetest =
+    next.pending_careless_retry === true &&
+    Number.isInteger(questionId) &&
+    questionId === Number(next.pending_retest_question_id || 0);
 
-  const { data: sameDaySubs, error: sameDaySubsError } = await supabase
-    .from("student_submissions")
-    .select("is_correct, submitted_at, problems(difficulty,topic,sub_type)")
-    .eq("student_id", studentId)
-    .eq("assignment_date", assignmentDate)
-    .order("submitted_at", { ascending: true });
-  if (sameDaySubsError) throw new Error(sameDaySubsError.message);
-  const comboDaySubs = (sameDaySubs || []).filter(
-    (row) =>
-      String(row?.problems?.difficulty || "").trim() === combo.difficulty &&
-      String(row?.problems?.topic || "").trim() === combo.topic &&
-      String(row?.problems?.sub_type || "").trim() === combo.sub_type
-  );
-  const wrongCountTodayForCombo = comboDaySubs.filter((row) => row.is_correct === false).length;
-  const firstWrongOfTodayForCombo = wrongCountTodayForCombo === 1;
+  const freezeIfNeeded = async () => {
+    if (Number(next.wrong_count || 0) < 3) return;
+    next.status = PROGRESS_STATUS.FROZEN;
+    next.is_paused = true;
+    next.pending_careless_retry = false;
+    next.pending_retest_question_id = null;
+    if (!(await hasOpenAlertForCombo(studentId, combo))) {
+      await createLearningAlert(
+        studentId,
+        combo,
+        `Student needs teacher support on ${combo.difficulty} / ${combo.topic} / ${combo.sub_type} (frozen after repeated errors).`
+      );
+    }
+  };
+
+  let feedback = {
+    progress_status: status,
+    careless_accepted: null,
+    careless_rejected_reason: null,
+    teacher_notified: false,
+    message: ""
+  };
+
+  if (isPendingRetest) {
+    next.pending_careless_retry = false;
+    next.pending_retest_question_id = null;
+    next.careless_retry_date = null;
+    if (isCorrect === true) {
+      next.status = PROGRESS_STATUS.KNOWN;
+      next.careless_streak = 0;
+    } else {
+      next.status = PROGRESS_STATUS.UNKNOWN;
+      next.mastery_achieved = false;
+      next.review_stage = 0;
+      next.next_review_date = null;
+      next.consecutive_correct_count = 0;
+      next.last_correct_date = null;
+      next.wrong_count = Number(next.wrong_count || 0) + 1;
+      await freezeIfNeeded();
+    }
+    feedback.progress_status = normalizeProgressStatus(next);
+    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
+    feedback.message =
+      isCorrect === true
+        ? "Retest passed. Your review schedule stays on track."
+        : feedback.teacher_notified
+          ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
+          : "The retest was not correct, so this sub-topic is now marked as learning again.";
+    await upsertStudentLearningProgress(next);
+    return feedback;
+  }
+
+  if (status === PROGRESS_STATUS.BACKFILL) {
+    if (isCorrect === true) {
+      next.backfill_correct_count = Number(next.backfill_correct_count || 0) + 1;
+      next.careless_streak = 0;
+      if (Number(next.backfill_correct_count || 0) >= 2) {
+        next.status = PROGRESS_STATUS.MASTERED;
+        next.mastery_achieved = true;
+        next.review_stage = 5;
+        next.next_review_date = null;
+      }
+    } else {
+      next.status = PROGRESS_STATUS.UNKNOWN;
+      next.mastery_achieved = false;
+      next.review_stage = 0;
+      next.next_review_date = null;
+      next.consecutive_correct_count = 0;
+      next.last_correct_date = null;
+      next.wrong_count = Number(next.wrong_count || 0) + 1;
+      next.backfill_correct_count = 0;
+      next.careless_streak = 0;
+      await freezeIfNeeded();
+    }
+    feedback.progress_status = normalizeProgressStatus(next);
+    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
+    feedback.message =
+      feedback.teacher_notified
+        ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
+        : feedback.progress_status === PROGRESS_STATUS.MASTERED
+          ? "Backfill passed. This sub-topic is now mastered."
+          : "This backfill question showed a gap, so this sub-topic is now marked as learning again.";
+    await upsertStudentLearningProgress(next);
+    return feedback;
+  }
+
+  if (status === PROGRESS_STATUS.KNOWN) {
+    if (isCorrect === true) {
+      const stage = Math.max(1, Number(next.review_stage || 1));
+      next.pending_careless_retry = false;
+      next.pending_retest_question_id = null;
+      next.careless_retry_date = null;
+      next.careless_streak = 0;
+      next.wrong_count = 0;
+      if (stage >= 5) {
+        next.status = PROGRESS_STATUS.MASTERED;
+        next.mastery_achieved = true;
+        next.review_stage = 5;
+        next.next_review_date = null;
+      } else {
+        const nextStage = stage + 1;
+        next.status = PROGRESS_STATUS.KNOWN;
+        next.mastery_achieved = true;
+        next.review_stage = nextStage;
+        next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(nextStage));
+      }
+    } else {
+      const carelessAllowed = carelessError === true && Number(timeSpentSeconds || 0) >= CARELESS_MIN_SECONDS && Number(next.careless_streak || 0) < 2;
+      if (carelessAllowed) {
+        const retestQuestionId = await appendCarelessRetryAssignment(studentProfile, assignmentDate, combo);
+        next.pending_careless_retry = true;
+        next.pending_retest_question_id = retestQuestionId;
+        next.careless_retry_date = addDaysDateString(assignmentDate, 1);
+        next.careless_streak = Number(next.careless_streak || 0) + 1;
+        feedback.careless_accepted = true;
+        feedback.message = "Marked as careless. The system will give you one retest from this sub-topic soon. Passing it keeps your review schedule.";
+      } else {
+        feedback.careless_accepted = carelessError === true ? false : null;
+        if (carelessError === true) {
+          feedback.careless_rejected_reason =
+            Number(timeSpentSeconds || 0) < CARELESS_MIN_SECONDS
+              ? "too_fast"
+              : Number(next.careless_streak || 0) >= 2
+                ? "twice_wrong"
+                : "not_available";
+        }
+        next.status = PROGRESS_STATUS.UNKNOWN;
+        next.mastery_achieved = false;
+        next.review_stage = 0;
+        next.next_review_date = null;
+        next.consecutive_correct_count = 0;
+        next.last_correct_date = null;
+        next.wrong_count = Number(next.wrong_count || 0) + 1;
+        next.careless_streak = 0;
+        await freezeIfNeeded();
+        feedback.message =
+          feedback.careless_rejected_reason === "twice_wrong"
+            ? "The system cannot mark this as careless because this type has already been missed twice. This sub-topic is now marked as learning again."
+            : feedback.careless_rejected_reason === "too_fast"
+              ? "The system cannot mark this as careless because the answer was submitted too quickly. This sub-topic is now marked as learning again."
+              : "This sub-topic is now marked as learning again.";
+      }
+    }
+    feedback.progress_status = normalizeProgressStatus(next);
+    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
+    if (feedback.teacher_notified) {
+      feedback.message = "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again.";
+    }
+    await upsertStudentLearningProgress(next);
+    return feedback;
+  }
+
+  if (status === PROGRESS_STATUS.MASTERED) {
+    if (isCorrect === false) {
+      next.status = PROGRESS_STATUS.UNKNOWN;
+      next.mastery_achieved = false;
+      next.review_stage = 0;
+      next.next_review_date = null;
+      next.consecutive_correct_count = 0;
+      next.last_correct_date = null;
+      next.wrong_count = Number(next.wrong_count || 0) + 1;
+      await freezeIfNeeded();
+    }
+    await upsertStudentLearningProgress(next);
+    feedback.progress_status = normalizeProgressStatus(next);
+    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
+    feedback.message = feedback.teacher_notified
+      ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
+      : isCorrect === false
+        ? "This sub-topic is now marked as learning again."
+        : "";
+    return feedback;
+  }
 
   if (isCorrect === true) {
-    const wasCarelessRetry = next.pending_careless_retry && String(next.careless_retry_date || "") === assignmentDate;
     next.pending_careless_retry = false;
     next.careless_retry_date = null;
     next.correction_wrong_streak = 0;
     next.correction_due_date = null;
     next.is_paused = false;
-
-    if (Number(next.review_stage || 0) >= 1) {
-      if (Number(next.review_stage || 0) >= 6) {
-        next.review_stage = 6;
-        next.next_review_date = null;
-      } else {
-        next.review_stage = Number(next.review_stage || 0) + 1;
-        const interval = reviewIntervalByStage(next.review_stage);
-        next.next_review_date = addDaysDateString(assignmentDate, interval);
-      }
-      next.streak_correct = 2;
+    const lastCorrectDate = String(next.last_correct_date || "");
+    const wasCrossDay = lastCorrectDate && lastCorrectDate < assignmentDate;
+    const previousCount = Number(next.consecutive_correct_count || 0);
+    next.consecutive_correct_count = wasCrossDay ? previousCount + 1 : Math.max(previousCount, 1);
+    next.last_correct_date = assignmentDate;
+    next.wrong_count = 0;
+    next.careless_streak = 0;
+    if (Number(next.consecutive_correct_count || 0) >= 2 && wasCrossDay) {
+      next.status = PROGRESS_STATUS.KNOWN;
       next.mastery_achieved = true;
+      next.review_stage = 1;
+      next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(1));
       next.consolidation_due_date = null;
-
-      if (wasCarelessRetry && Number(next.review_stage || 0) >= 1 && next.next_review_date) {
-        const stageInterval = reviewIntervalByStage(Number(next.review_stage || 1));
-        const shortened = Math.max(1, Math.floor(stageInterval / 2));
-        next.next_review_date = addDaysDateString(assignmentDate, shortened);
-      }
     } else {
-      next.streak_correct = Math.min(2, Number(next.streak_correct || 0) + 1);
-      if (Number(next.streak_correct || 0) >= 2) {
-        next.mastery_achieved = true;
-        next.review_stage = 1;
-        next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(1));
-        next.consolidation_due_date = null;
-      } else {
-        next.mastery_achieved = false;
-        next.review_stage = 0;
-        next.next_review_date = null;
-        next.consolidation_due_date = addDaysDateString(assignmentDate, 1);
-      }
+      next.status = PROGRESS_STATUS.UNKNOWN;
+      next.mastery_achieved = false;
+      next.review_stage = 0;
+      next.next_review_date = null;
     }
   } else if (isCorrect === false) {
+    next.status = PROGRESS_STATUS.UNKNOWN;
     next.ever_wrong = true;
-
-    if (carelessError) {
-      next.pending_careless_retry = true;
-      next.careless_retry_date = assignmentDate;
-      await appendCarelessRetryAssignment(studentProfile, assignmentDate, combo);
-    } else {
-      next.pending_careless_retry = false;
-      next.careless_retry_date = null;
-      next.streak_correct = 0;
-      next.consolidation_due_date = null;
-      next.correction_due_date = addDaysDateString(assignmentDate, 1);
-      if (firstWrongOfTodayForCombo) {
-        next.correction_wrong_streak = Number(next.correction_wrong_streak || 0) + 1;
-      }
-
-      if (Number(next.review_stage || 0) >= 1) {
-        const current = Number(next.review_stage || 1);
-        if (current <= 1) {
-          next.mastery_achieved = false;
-          next.review_stage = 0;
-          next.next_review_date = null;
-        } else {
-          let fallbackStage = Math.max(1, current - 2);
-          if (current === 2) fallbackStage = 1;
-          next.review_stage = fallbackStage;
-          next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(fallbackStage));
-        }
-      } else {
-        next.review_stage = 0;
-        next.next_review_date = null;
-      }
-
-      if (Number(next.correction_wrong_streak || 0) >= 3) {
-        next.is_paused = true;
-        if (!(await hasOpenAlertForCombo(studentId, combo))) {
-          await createLearningAlert(
-            studentId,
-            combo,
-            `Student needs teacher support on ${combo.difficulty} / ${combo.topic} / ${combo.sub_type} (repeated correction errors).`
-          );
-        }
-      }
-    }
+    next.pending_careless_retry = false;
+    next.careless_retry_date = null;
+    next.consecutive_correct_count = 0;
+    next.last_correct_date = null;
+    next.streak_correct = 0;
+    next.consolidation_due_date = null;
+    next.correction_due_date = null;
+    next.wrong_count = Number(next.wrong_count || 0) + 1;
+    next.careless_streak = 0;
+    await freezeIfNeeded();
   }
 
   await upsertStudentLearningProgress(next);
+  feedback.progress_status = normalizeProgressStatus(next);
+  feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
+  feedback.message = feedback.teacher_notified
+    ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
+    : isCorrect === true && feedback.progress_status === PROGRESS_STATUS.KNOWN
+      ? "Good work. You answered this sub-topic correctly across different days, so it is now in review."
+      : isCorrect === false
+        ? "This sub-topic is still marked as learning. Review it and try again next time."
+        : "";
+  return feedback;
+}
+
+async function getLearningProgressStatusForProblem(studentId, problemRow) {
+  const combo = {
+    difficulty: String(problemRow?.difficulty || "").trim(),
+    topic: String(problemRow?.topic || "").trim(),
+    sub_type: String(problemRow?.sub_type || "").trim()
+  };
+  if (!combo.difficulty || !combo.topic || !combo.sub_type) return PROGRESS_STATUS.UNKNOWN;
+  const progress = await findProgressRow(studentId, combo);
+  return normalizeProgressStatus(progress);
 }
 
 app.get("/api/meta", (_req, res) => {
@@ -2004,6 +2394,33 @@ app.get("/api/meta/scope-options", ensureCloud, requireAuth, requireRole("teache
   const allTopics = [...allTopicSet].sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }));
 
   return res.json({ topics_by_difficulty: byDifficulty, all_topics: allTopics });
+});
+
+app.get("/api/teacher/question-bank/subtopics", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const topic = String(req.query.topic || "").trim();
+  if (!topic) return res.status(400).json({ error: "topic is required." });
+  const { data, error } = await supabase
+    .from("problems")
+    .select("difficulty,topic,sub_type")
+    .eq("topic", topic);
+  if (error) return res.status(500).json({ error: error.message });
+
+  const dedup = new Map();
+  for (const row of data || []) {
+    const difficulty = String(row.difficulty || "").trim();
+    const subType = String(row.sub_type || "").trim();
+    if (!subType) continue;
+    const key = `${difficulty}|||${subType}`;
+    if (!dedup.has(key)) {
+      dedup.set(key, { difficulty, topic, sub_type: subType });
+    }
+  }
+  const subtopics = [...dedup.values()].sort((a, b) => {
+    const diffCmp = DIFF.indexOf(a.difficulty) - DIFF.indexOf(b.difficulty);
+    if (diffCmp !== 0) return diffCmp;
+    return String(a.sub_type || "").localeCompare(String(b.sub_type || ""), "en", { numeric: true, sensitivity: "base" });
+  });
+  return res.json({ topic, subtopics });
 });
 
 app.get("/api/client-config", ensureClientAuth, (_req, res) => {
@@ -2163,6 +2580,45 @@ app.post("/api/student/gacha/draw", ensureCloud, requireAuth, requireRole("stude
   }
 });
 
+app.get("/api/student/initial-assessment", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  try {
+    const completed = await hasCompletedInitialAssessment(req.profile.user_id);
+    if (completed) return res.json({ completed: true, assessment: completed, questions: [] });
+    const questions = await buildInitialAssessmentQuestions(req.profile);
+    return res.json({ completed: false, questions });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to build initial assessment." });
+  }
+});
+
+app.post("/api/student/initial-assessment/submit", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  const answers = Array.isArray(req.body.answers) ? req.body.answers : [];
+  if (!answers.length) return res.status(400).json({ error: "answers are required." });
+  try {
+    const completed = await hasCompletedInitialAssessment(req.profile.user_id);
+    if (completed) return res.json({ completed: true, assessment: completed });
+
+    const questionIds = answers.map((a) => Number(a?.question_id)).filter((id) => Number.isInteger(id) && id > 0);
+    const { data: problems, error } = await supabase
+      .from("problems")
+      .select("id,answer_text,difficulty")
+      .in("id", questionIds);
+    if (error) throw new Error(error.message);
+    const problemById = new Map((problems || []).map((p) => [Number(p.id), p]));
+    const counts = { lv2: 0, lv3: 0, lv4: 0, lv5: 0 };
+    for (const answer of answers) {
+      const problem = problemById.get(Number(answer?.question_id));
+      const difficulty = String(problem?.difficulty || "").trim();
+      if (!Object.prototype.hasOwnProperty.call(counts, difficulty)) continue;
+      if (compareAnswer(answer?.answer_text, problem?.answer_text) === true) counts[difficulty] += 1;
+    }
+    const placement = await initializeProgressFromAssessment(req.profile, counts);
+    return res.json({ completed: true, counts, ...placement });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to submit initial assessment." });
+  }
+});
+
 app.post("/api/student/frames/select", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
   const frameId = Number(req.body.frame_id);
   if (!Number.isInteger(frameId) || frameId <= 0) {
@@ -2276,6 +2732,7 @@ app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student")
   const answerText = String(req.body.answer_text || "").trim();
   const timeSpentSeconds = normalizeTimeSpentSeconds(req.body.time_spent_seconds);
   const carelessError = req.body.careless_error === true;
+  const deferWrongFeedback = req.body.defer_wrong_feedback === true;
 
   if (!Number.isInteger(questionId) || questionId <= 0) {
     return res.status(400).json({ error: "Valid question_id is required." });
@@ -2314,7 +2771,7 @@ app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student")
 
   const { data: problem, error: problemError } = await supabase
     .from("problems")
-    .select("answer_text,difficulty,topic,sub_type")
+    .select("id,answer_text,difficulty,topic,sub_type")
     .eq("id", questionId)
     .maybeSingle();
   if (problemError) return res.status(500).json({ error: problemError.message });
@@ -2341,8 +2798,13 @@ app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student")
     return res.status(500).json({ error: error.message });
   }
 
+  let progressFeedback = null;
+  const statusBeforeSubmit = await getLearningProgressStatusForProblem(req.profile.user_id, problem || {});
+  const needsKnownWrongFeedback = isCorrect === false && statusBeforeSubmit === PROGRESS_STATUS.KNOWN && deferWrongFeedback === true;
   try {
-    await updateLearningProgressAfterSubmission(req.profile, assignmentDate, problem || {}, isCorrect, carelessError);
+    if (!needsKnownWrongFeedback) {
+      progressFeedback = await updateLearningProgressAfterSubmission(req.profile, assignmentDate, problem || {}, isCorrect, carelessError, timeSpentSeconds);
+    }
   } catch (progressError) {
     return res.status(500).json({ error: progressError.message || "Submission saved, but learning progress update failed." });
   }
@@ -2378,8 +2840,41 @@ app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student")
   return res.json({
     ...data,
     token_reward: tokenReward,
-    token_balance: tokenBalance
+    token_balance: tokenBalance,
+    progress_feedback: progressFeedback || null,
+    needs_wrong_feedback: needsKnownWrongFeedback,
+    progress_status_before_submit: statusBeforeSubmit
   });
+});
+
+app.post("/api/student/submit/:questionId/wrong-feedback", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  const questionId = Number(req.params.questionId);
+  const assignmentDate = String(req.body.assignment_date || "").trim() || getTodayDateString();
+  const timeSpentSeconds = normalizeTimeSpentSeconds(req.body.time_spent_seconds);
+  const carelessError = req.body.careless_error === true;
+  if (!Number.isInteger(questionId) || questionId <= 0) return res.status(400).json({ error: "Valid questionId is required." });
+
+  const { data: submission, error: submissionError } = await supabase
+    .from("student_submissions")
+    .select("id,is_correct")
+    .eq("student_id", req.profile.user_id)
+    .eq("assignment_date", assignmentDate)
+    .eq("question_id", questionId)
+    .maybeSingle();
+  if (submissionError) return res.status(500).json({ error: submissionError.message });
+  if (!submission) return res.status(404).json({ error: "Submission not found." });
+  if (submission.is_correct !== false) return res.status(400).json({ error: "Wrong feedback is only available for wrong answers." });
+
+  const { data: problem, error: problemError } = await supabase.from("problems").select("*").eq("id", questionId).maybeSingle();
+  if (problemError) return res.status(500).json({ error: problemError.message });
+  if (!problem) return res.status(404).json({ error: "Question not found." });
+
+  try {
+    const progressFeedback = await updateLearningProgressAfterSubmission(req.profile, assignmentDate, problem || {}, false, carelessError, timeSpentSeconds);
+    return res.json({ progress_feedback: progressFeedback || null });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to update wrong-answer feedback." });
+  }
 });
 
 app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
@@ -2464,6 +2959,43 @@ app.get("/api/student/review", ensureCloud, requireAuth, requireRole("student"),
   return res.json({ count: rows.length, stats, records: rows });
 });
 
+function progressRowsToStatusGroups(rows) {
+  const byTopic = new Map();
+  for (const row of rows || []) {
+    const topic = String(row.topic || "").trim() || "Unknown";
+    const subType = String(row.sub_type || "").trim() || "Unknown";
+    if (!byTopic.has(topic)) byTopic.set(topic, []);
+    byTopic.get(topic).push({
+      difficulty: row.difficulty,
+      topic,
+      sub_type: subType,
+      status: normalizeProgressStatus(row),
+      next_review_date: row.next_review_date || null,
+      consecutive_correct_count: Number(row.consecutive_correct_count || 0),
+      wrong_count: Number(row.wrong_count || 0),
+      backfill_correct_count: Number(row.backfill_correct_count || 0)
+    });
+  }
+  return [...byTopic.entries()]
+    .map(([topic, subtopics]) => ({
+      topic,
+      subtopics: subtopics.sort(compareComboOrder)
+    }))
+    .sort((a, b) => a.topic.localeCompare(b.topic, "en", { numeric: true, sensitivity: "base" }));
+}
+
+app.get("/api/student/progress", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  const { data, error } = await supabase
+    .from("student_learning_progress")
+    .select("difficulty,topic,sub_type,status,next_review_date,consecutive_correct_count,wrong_count,backfill_correct_count")
+    .eq("student_id", req.profile.user_id)
+    .order("difficulty", { ascending: true })
+    .order("topic", { ascending: true })
+    .order("sub_type", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ topics: progressRowsToStatusGroups(data || []) });
+});
+
 app.get("/api/student/alerts", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
   const { data, error } = await supabase
     .from("learning_alerts")
@@ -2478,11 +3010,83 @@ app.get("/api/student/alerts", ensureCloud, requireAuth, requireRole("student"),
 app.get("/api/teacher/alerts", ensureCloud, requireAuth, requireRole("teacher"), async (_req, res) => {
   const { data, error } = await supabase
     .from("learning_alerts")
-    .select("id,student_id,difficulty,topic,sub_type,message,created_at,user_profiles(full_name,email,grade)")
-    .eq("is_resolved", false)
+    .select("id,student_id,difficulty,topic,sub_type,message,created_at,is_resolved,user_profiles(full_name,email,class_name)")
     .order("created_at", { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ alerts: Array.isArray(data) ? data : [] });
+});
+
+app.get("/api/teacher/alerts/:alertId/wrong-answers", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const alertId = Number(req.params.alertId);
+  if (!Number.isInteger(alertId) || alertId <= 0) return res.status(400).json({ error: "Valid alertId is required." });
+  const { data: alertRow, error: alertError } = await supabase
+    .from("learning_alerts")
+    .select("id,student_id,difficulty,topic,sub_type,user_profiles(full_name,class_name)")
+    .eq("id", alertId)
+    .maybeSingle();
+  if (alertError) return res.status(500).json({ error: alertError.message });
+  if (!alertRow) return res.status(404).json({ error: "Alert not found." });
+
+  const { data, error } = await supabase
+    .from("student_submissions")
+    .select(
+      "id,assignment_date,question_id,answer_text,is_correct,submitted_at,time_spent_seconds,problems(question_type,difficulty,topic,sub_type,latex_code,answer_text,solution_latex)"
+    )
+    .eq("student_id", alertRow.student_id)
+    .eq("is_correct", false)
+    .order("submitted_at", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+
+  const rows = (data || []).filter((row) => {
+    const p = row.problems || {};
+    return (
+      String(p.topic || "") === String(alertRow.topic || "") &&
+      String(p.sub_type || "") === String(alertRow.sub_type || "")
+    );
+  });
+  return res.json({ alert: alertRow, records: rows });
+});
+
+app.get("/api/teacher/progress", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const className = String(req.query.class_name || "").trim();
+  const topic = String(req.query.topic || "").trim();
+  const subType = String(req.query.sub_type || "").trim();
+
+  let profileQuery = supabase
+    .from("user_profiles")
+    .select("user_id,full_name,email,grade,class_name")
+    .eq("role", "student")
+    .order("class_name", { ascending: true })
+    .order("full_name", { ascending: true });
+  if (className) profileQuery = profileQuery.eq("class_name", className);
+  const { data: students, error: studentError } = await profileQuery;
+  if (studentError) return res.status(500).json({ error: studentError.message });
+  const studentRows = Array.isArray(students) ? students : [];
+  const ids = studentRows.map((s) => String(s.user_id || "")).filter(Boolean);
+  if (!ids.length) return res.json({ students: [] });
+
+  let progressQuery = supabase
+    .from("student_learning_progress")
+    .select("student_id,difficulty,topic,sub_type,status,next_review_date,consecutive_correct_count,wrong_count,backfill_correct_count")
+    .in("student_id", ids);
+  if (topic) progressQuery = progressQuery.eq("topic", topic);
+  if (subType) progressQuery = progressQuery.eq("sub_type", subType);
+  const { data: progress, error: progressError } = await progressQuery;
+  if (progressError) return res.status(500).json({ error: progressError.message });
+
+  const byStudent = new Map();
+  for (const row of progress || []) {
+    const sid = String(row.student_id || "");
+    if (!byStudent.has(sid)) byStudent.set(sid, []);
+    byStudent.get(sid).push(row);
+  }
+
+  return res.json({
+    students: studentRows.map((student) => ({
+      ...student,
+      topics: progressRowsToStatusGroups(byStudent.get(String(student.user_id || "")) || [])
+    }))
+  });
 });
 
 app.post("/api/teacher/alerts/:alertId/resolve", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
@@ -2502,7 +3106,7 @@ app.post("/api/teacher/alerts/:alertId/resolve", ensureCloud, requireAuth, requi
 
   const { error: unpauseError } = await supabase
     .from("student_learning_progress")
-    .update({ is_paused: false, correction_wrong_streak: 0, correction_due_date: getTodayDateString() })
+    .update({ status: PROGRESS_STATUS.UNKNOWN, is_paused: false, wrong_count: 0, correction_wrong_streak: 0, correction_due_date: null })
     .eq("student_id", alertRow.student_id)
     .eq("difficulty", alertRow.difficulty)
     .eq("topic", alertRow.topic)
@@ -2518,7 +3122,7 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
 
   const { data: students, error: studentError } = await supabase
     .from("user_profiles")
-    .select("user_id, full_name, email, grade, class_name")
+    .select("user_id, full_name, email, class_name")
     .eq("role", "student")
     .order("full_name", { ascending: true });
 
@@ -2565,6 +3169,12 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
     .eq("is_resolved", false);
   if (alertError) return res.status(500).json({ error: alertError.message });
 
+  const { data: assessments, error: assessmentError } = await supabase
+    .from("student_initial_assessments")
+    .select("student_id,start_difficulty")
+    .in("student_id", studentIds);
+  if (assessmentError) return res.status(500).json({ error: assessmentError.message });
+
   const assignedCountByStudent = new Map();
   const submittedCountByStudent = new Map();
   const correctCountByStudent = new Map();
@@ -2574,6 +3184,7 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
   const timeCountByStudent = new Map();
   const perDateDoneCountByStudent = new Map();
   const alertCountByStudent = new Map();
+  const initialLevelByStudent = new Map();
 
   for (const row of assignments || []) {
     const key = row.student_id;
@@ -2613,6 +3224,9 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
     if (!studentIdSet.has(String(key || ""))) continue;
     alertCountByStudent.set(key, (alertCountByStudent.get(key) || 0) + 1);
   }
+  for (const row of assessments || []) {
+    initialLevelByStudent.set(String(row.student_id || ""), String(row.start_difficulty || ""));
+  }
 
   const overview = filteredStudents.map((student) => {
     const assigned = assignedCountByStudent.get(student.user_id) || 0;
@@ -2638,8 +3252,8 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
       student_id: student.user_id,
       full_name: student.full_name,
       email: student.email,
-      grade: student.grade,
       class_name: student.class_name || null,
+      initial_test_level: initialLevelByStudent.get(String(student.user_id || "")) || "",
       assigned,
       submitted,
       correct,
@@ -2687,7 +3301,7 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
 
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
-    .select("user_id, full_name, email, grade, class_name")
+    .select("user_id, full_name, email, class_name")
     .eq("user_id", studentId)
     .eq("role", "student")
     .maybeSingle();
@@ -2736,6 +3350,101 @@ app.put("/api/teacher/students/:studentId/class", ensureCloud, requireAuth, requ
   return res.json({ student_id: studentId, class_name: className || null });
 });
 
+app.put("/api/teacher/students/class", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const studentIds = Array.isArray(req.body.student_ids)
+    ? req.body.student_ids.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  const className = String(req.body.class_name || "").trim();
+  if (!studentIds.length) return res.status(400).json({ error: "student_ids are required." });
+
+  const { error } = await supabase
+    .from("user_profiles")
+    .update({ class_name: className || null })
+    .in("user_id", studentIds)
+    .eq("role", "student");
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ updated: studentIds.length, class_name: className || null });
+});
+
+function normalizeScopePayload(scopes) {
+  const incoming = Array.isArray(scopes) ? scopes : [];
+  const rows = incoming
+    .map((row) => ({
+      min_difficulty: String(row?.min_difficulty || "").trim(),
+      max_difficulty: String(row?.max_difficulty || row?.difficulty || "").trim(),
+      topic: String(row?.topic || "").trim(),
+      sub_type: String(row?.sub_type || "").trim()
+    }))
+    .filter((row) => row.max_difficulty && row.topic);
+
+  const diffIndex = new Map(DIFF.map((d, i) => [d, i]));
+  const dedup = new Map();
+  for (const row of rows) {
+    const minDifficulty = row.min_difficulty && diffIndex.has(row.min_difficulty) ? row.min_difficulty : DIFF[0];
+    const maxDifficulty = row.max_difficulty;
+    const minIdx = diffIndex.has(minDifficulty) ? diffIndex.get(minDifficulty) : 0;
+    const maxIdx = diffIndex.has(maxDifficulty) ? diffIndex.get(maxDifficulty) : -1;
+    if (maxIdx < 0 || minIdx > maxIdx) continue;
+
+    const normalizedRow = {
+      min_difficulty: minDifficulty,
+      max_difficulty: maxDifficulty,
+      difficulty: maxDifficulty,
+      topic: row.topic,
+      sub_type: row.sub_type
+    };
+    const key = `${normalizedRow.topic}|||${normalizedRow.sub_type}`;
+    const existing = dedup.get(key);
+    if (!existing) {
+      dedup.set(key, normalizedRow);
+      continue;
+    }
+    const oldMaxIdx = diffIndex.has(existing.max_difficulty) ? diffIndex.get(existing.max_difficulty) : -1;
+    const newMaxIdx = diffIndex.has(normalizedRow.max_difficulty) ? diffIndex.get(normalizedRow.max_difficulty) : -1;
+    if (newMaxIdx > oldMaxIdx) dedup.set(key, normalizedRow);
+  }
+  return [...dedup.values()];
+}
+
+app.get("/api/teacher/classes/:className/scope", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const className = String(req.params.className || "").trim();
+  if (!className) return res.status(400).json({ error: "className is required." });
+
+  const { data, error } = await supabase
+    .from("class_scopes")
+    .select("id,difficulty,min_difficulty,max_difficulty,topic,sub_type")
+    .eq("class_name", className)
+    .order("max_difficulty", { ascending: true })
+    .order("topic", { ascending: true })
+    .order("sub_type", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ class_name: className, scope_rules: Array.isArray(data) ? data : [] });
+});
+
+app.put("/api/teacher/classes/:className/scope", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const className = String(req.params.className || "").trim();
+  if (!className) return res.status(400).json({ error: "className is required." });
+
+  const normalized = normalizeScopePayload(req.body.scopes);
+  const { error: clearError } = await supabase.from("class_scopes").delete().eq("class_name", className);
+  if (clearError) return res.status(500).json({ error: clearError.message });
+
+  if (normalized.length) {
+    const payload = normalized.map((row) => ({
+      class_name: className,
+      difficulty: row.difficulty,
+      min_difficulty: row.min_difficulty,
+      max_difficulty: row.max_difficulty,
+      topic: row.topic,
+      sub_type: row.sub_type || null
+    }));
+    const { error: insertError } = await supabase.from("class_scopes").insert(payload);
+    if (insertError) return res.status(500).json({ error: insertError.message });
+  }
+
+  return res.json({ saved: normalized.length });
+});
+
 app.get("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher"), async (_req, res) => {
   const { data: groups, error: groupError } = await supabase
     .from("study_groups")
@@ -2754,11 +3463,95 @@ app.get("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher"),
     countMap.set(key, (countMap.get(key) || 0) + 1);
   }
 
-  const output = (groups || []).map((g) => ({
-    ...g,
-    member_count: countMap.get(Number(g.id)) || 0
-  }));
+  const memberIds = [...new Set((members || []).map((m) => String(m.student_id || "")).filter(Boolean))];
+  const { data: submissions, error: submissionError } = memberIds.length
+    ? await supabase.from("student_submissions").select("student_id,is_correct").in("student_id", memberIds)
+    : { data: [], error: null };
+  if (submissionError) return res.status(500).json({ error: submissionError.message });
+  const statsByStudent = new Map();
+  for (const row of submissions || []) {
+    const sid = String(row.student_id || "");
+    if (!statsByStudent.has(sid)) statsByStudent.set(sid, { done: 0, correct: 0 });
+    const stat = statsByStudent.get(sid);
+    stat.done += 1;
+    if (row.is_correct === true) stat.correct += 1;
+  }
+  const membersByGroup = new Map();
+  for (const row of members || []) {
+    const gid = Number(row.group_id);
+    if (!membersByGroup.has(gid)) membersByGroup.set(gid, []);
+    membersByGroup.get(gid).push(String(row.student_id || ""));
+  }
+
+  const output = (groups || []).map((g) => {
+    const ids = membersByGroup.get(Number(g.id)) || [];
+    const totalDone = ids.reduce((acc, sid) => acc + (statsByStudent.get(sid)?.done || 0), 0);
+    const totalCorrect = ids.reduce((acc, sid) => acc + (statsByStudent.get(sid)?.correct || 0), 0);
+    return {
+      ...g,
+      member_count: countMap.get(Number(g.id)) || 0,
+      members: ids,
+      average_correct_percentage: totalDone > 0 ? Math.round((totalCorrect / totalDone) * 100) : 0,
+      average_questions_done: ids.length ? Math.round(totalDone / ids.length) : 0
+    };
+  });
   return res.json(output);
+});
+
+app.get("/api/teacher/classes", ensureCloud, requireAuth, requireRole("teacher"), async (_req, res) => {
+  const { data: students, error: studentError } = await supabase
+    .from("user_profiles")
+    .select("user_id,full_name,email,class_name")
+    .eq("role", "student");
+  if (studentError) return res.status(500).json({ error: studentError.message });
+  const classMap = new Map();
+  for (const student of students || []) {
+    const className = String(student.class_name || "").trim();
+    if (!className) continue;
+    if (!classMap.has(className)) classMap.set(className, []);
+    classMap.get(className).push(student);
+  }
+  const ids = (students || []).map((s) => String(s.user_id || "")).filter(Boolean);
+  const { data: submissions, error: submissionError } = ids.length
+    ? await supabase.from("student_submissions").select("student_id,is_correct").in("student_id", ids)
+    : { data: [], error: null };
+  if (submissionError) return res.status(500).json({ error: submissionError.message });
+  const statsByStudent = new Map();
+  for (const row of submissions || []) {
+    const sid = String(row.student_id || "");
+    if (!statsByStudent.has(sid)) statsByStudent.set(sid, { done: 0, correct: 0 });
+    const stat = statsByStudent.get(sid);
+    stat.done += 1;
+    if (row.is_correct === true) stat.correct += 1;
+  }
+  const classes = [...classMap.entries()]
+    .map(([name, classStudents]) => {
+      const totalDone = classStudents.reduce((acc, s) => acc + (statsByStudent.get(String(s.user_id || ""))?.done || 0), 0);
+      const totalCorrect = classStudents.reduce((acc, s) => acc + (statsByStudent.get(String(s.user_id || ""))?.correct || 0), 0);
+      return {
+        name,
+        student_count: classStudents.length,
+        average_correct_percentage: totalDone > 0 ? Math.round((totalCorrect / totalDone) * 100) : 0,
+        average_questions_done: classStudents.length ? Math.round(totalDone / classStudents.length) : 0
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return res.json(classes);
+});
+
+app.post("/api/teacher/classes", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const name = String(req.body.name || "").trim();
+  if (!name) return res.status(400).json({ error: "Class name is required." });
+  return res.status(201).json({ name });
+});
+
+app.delete("/api/teacher/classes/:className", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const className = String(req.params.className || "").trim();
+  if (!className) return res.status(400).json({ error: "className is required." });
+  const { error: profileError } = await supabase.from("user_profiles").update({ class_name: null }).eq("class_name", className);
+  if (profileError) return res.status(500).json({ error: profileError.message });
+  await supabase.from("class_scopes").delete().eq("class_name", className);
+  return res.json({ deleted: true, class_name: className });
 });
 
 app.post("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
@@ -2768,6 +3561,16 @@ app.post("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher")
   const { data, error } = await supabase.from("study_groups").insert({ name }).select("*").single();
   if (error) return res.status(400).json({ error: error.message });
   return res.status(201).json(data);
+});
+
+app.delete("/api/teacher/groups/:groupId", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  const groupId = Number(req.params.groupId);
+  if (!Number.isInteger(groupId) || groupId <= 0) return res.status(400).json({ error: "Valid groupId is required." });
+  await supabase.from("student_group_memberships").delete().eq("group_id", groupId);
+  await supabase.from("study_group_scopes").delete().eq("group_id", groupId);
+  const { error } = await supabase.from("study_groups").delete().eq("id", groupId);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ deleted: true, group_id: groupId });
 });
 
 app.get("/api/teacher/students/:studentId/groups", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
@@ -3025,10 +3828,17 @@ app.post("/api/problems", ensureCloud, requireAdminUploadAccess, async (req, res
   const err = validateProblem(p);
   if (err) return res.status(400).json({ error: err });
 
-  const { data, error, solution_saved } = await insertWithSolutionFallback(p);
+  let prepared;
+  try {
+    prepared = await prepareProblemFigures(p);
+  } catch (error) {
+    return res.status(400).json({ error: error.message || "Failed to convert TikZ figures." });
+  }
+
+  const { data, error, solution_saved } = await insertWithSolutionFallback(prepared.problem);
   if (error) return res.status(500).json({ error: error.message });
 
-  return res.status(201).json({ ...data, solution_saved });
+  return res.status(201).json({ ...data, solution_saved, converted_figures: prepared.converted_figures });
 });
 app.post("/api/problems/batch", ensureCloud, requireAdminUploadAccess, async (req, res) => {
   const baseLabels = {
@@ -3055,10 +3865,22 @@ app.post("/api/problems/batch", ensureCloud, requireAdminUploadAccess, async (re
     answer_text: String(i.answer_text || "").trim()
   }));
 
-  const { data, error, solution_saved } = await batchInsertWithSolutionFallback(baseLabels, cleanItems);
+  let preparedItems = [];
+  let convertedFigures = 0;
+  try {
+    for (const item of cleanItems) {
+      const prepared = await prepareProblemFigures(item);
+      preparedItems.push(prepared.problem);
+      convertedFigures += prepared.converted_figures;
+    }
+  } catch (error) {
+    return res.status(400).json({ error: error.message || "Failed to convert TikZ figures." });
+  }
+
+  const { data, error, solution_saved } = await batchInsertWithSolutionFallback(baseLabels, preparedItems);
   if (error) return res.status(500).json({ error: error.message });
 
-  return res.status(201).json({ inserted: (data || []).length, solution_saved });
+  return res.status(201).json({ inserted: (data || []).length, solution_saved, converted_figures: convertedFigures });
 });
 
 app.patch("/api/problems/batch-label", ensureCloud, requireAdminUploadAccess, async (req, res) => {
@@ -3141,11 +3963,18 @@ app.put("/api/problems/:id", ensureCloud, requireAdminUploadAccess, async (req, 
   const err = validateProblem(p);
   if (err) return res.status(400).json({ error: err });
 
-  const { data, error, solution_saved } = await updateWithSolutionFallback(id, p);
+  let prepared;
+  try {
+    prepared = await prepareProblemFigures(p);
+  } catch (error) {
+    return res.status(400).json({ error: error.message || "Failed to convert TikZ figures." });
+  }
+
+  const { data, error, solution_saved } = await updateWithSolutionFallback(id, prepared.problem);
   if (error) return res.status(500).json({ error: error.message });
   if (!data) return res.status(404).json({ error: "Problem not found." });
 
-  return res.json({ ...data, solution_saved });
+  return res.json({ ...data, solution_saved, converted_figures: prepared.converted_figures });
 });
 
 app.delete("/api/problems/:id", ensureCloud, requireAdminUploadAccess, async (req, res) => {
@@ -3160,8 +3989,65 @@ app.delete("/api/problems/:id", ensureCloud, requireAdminUploadAccess, async (re
   return res.status(204).send();
 });
 
+async function runMidnightLearningMaintenance() {
+  if (!supabase) return;
+  const today = getTodayDateString();
+  const yesterday = addDaysDateString(today, -1);
+  const { error: unfreezeError } = await supabase
+    .from("student_learning_progress")
+    .update({
+      status: PROGRESS_STATUS.UNKNOWN,
+      is_paused: false,
+      wrong_count: 0,
+      correction_wrong_streak: 0,
+      correction_due_date: null
+    })
+    .eq("status", PROGRESS_STATUS.FROZEN);
+  if (unfreezeError) {
+    console.error("Midnight auto-unfreeze failed:", unfreezeError.message);
+  }
+
+  const { data: frozenAlerts, error: alertError } = await supabase
+    .from("learning_alerts")
+    .select("id")
+    .gte("created_at", `${yesterday}T00:00:00+00:00`)
+    .lt("created_at", `${today}T00:00:00+00:00`)
+    .eq("is_resolved", false);
+  if (alertError) {
+    console.error("Midnight teacher report scan failed:", alertError.message);
+  } else {
+    console.log(`Midnight learning maintenance complete. Open frozen-topic alerts from yesterday: ${(frozenAlerts || []).length}.`);
+  }
+}
+
+function scheduleMidnightLearningMaintenance() {
+  if (!supabase) return;
+  const scheduleNext = () => {
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: APP_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).formatToParts(now);
+    const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
+    const currentSeconds = get("hour") * 3600 + get("minute") * 60 + get("second");
+    const delaySeconds = currentSeconds === 0 ? 86400 : 86400 - currentSeconds;
+    setTimeout(async () => {
+      await runMidnightLearningMaintenance().catch((error) => console.error("Midnight learning maintenance failed:", error.message));
+      scheduleNext();
+    }, delaySeconds * 1000).unref?.();
+  };
+  scheduleNext();
+}
+
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  scheduleMidnightLearningMaintenance();
   if (!hasCloudConfig) {
     console.log("Missing cloud config. Create .env from .env.example and add Supabase credentials.");
   }

@@ -11,6 +11,8 @@ const uploadMessage = document.getElementById("upload-message");
 const qEl = document.getElementById("q");
 const filterDifficultyEl = document.getElementById("filter_difficulty");
 const filterGradeEl = document.getElementById("filter_grade");
+const filterTopicEl = document.getElementById("filter_topic");
+const filterSubTypeEl = document.getElementById("filter_sub_type");
 const searchBtn = document.getElementById("search-btn");
 const searchMessage = document.getElementById("search-message");
 const resultList = document.getElementById("result-list");
@@ -164,11 +166,14 @@ async function runSearch() {
   if (qEl.value.trim()) params.set("q", qEl.value.trim());
   if (filterDifficultyEl.value) params.set("difficulty", filterDifficultyEl.value);
   if (filterGradeEl.value) params.set("grade", filterGradeEl.value);
+  if (filterTopicEl?.value.trim()) params.set("topic", filterTopicEl.value.trim());
+  if (filterSubTypeEl?.value.trim()) params.set("sub_type", filterSubTypeEl.value.trim());
 
   const query = params.toString() ? `?${params.toString()}` : "";
   const items = await api(`/api/problems${query}`);
   renderResults(Array.isArray(items) ? items : []);
   setMessage(searchMessage, `Loaded ${Array.isArray(items) ? items.length : 0} question(s).`, "success");
+  resultList.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 
 uploadBtn.addEventListener("click", async () => {
@@ -211,7 +216,9 @@ uploadBtn.addEventListener("click", async () => {
       })
     });
 
-    setMessage(uploadMessage, `Uploaded ${data.inserted || 0} question(s).`, "success");
+    const converted = Number(data.converted_figures || 0);
+    const conversionNote = converted ? ` Converted ${converted} TikZ figure(s) to SVG.` : "";
+    setMessage(uploadMessage, `Uploaded ${data.inserted || 0} question(s).${conversionNote}`, "success");
     topicEl.value = "";
     subTypeEl.value = "";
     await runSearch();

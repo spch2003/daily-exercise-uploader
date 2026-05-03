@@ -580,6 +580,167 @@ body[data-student-page="teacher"] #profile-daily-mission-btn {
   gap: 0.5rem;
 }
 
+.assessment-options {
+  align-items: stretch;
+  flex-direction: column;
+  max-width: 20rem;
+}
+
+.assessment-options .mc-choice {
+  width: 100%;
+  text-align: left;
+}
+
+.assessment-options .dont-know-choice {
+  background: #fff7ed;
+  border-color: #f2c28b;
+  color: #7a4a12;
+}
+
+.assessment-options .dont-know-choice.selected {
+  background: #8a5a19;
+  border-color: #724811;
+  color: #fff;
+}
+
+.placement-instruction {
+  margin: 1rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid #7dd3c7;
+  border-left: 6px solid #0f8f83;
+  border-radius: 10px;
+  background: #ecfdf8;
+  color: #174e45;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.two-col {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.wide-dialog {
+  width: min(1100px, 94vw);
+  max-height: 88vh;
+  overflow: auto;
+}
+
+body[data-student-page="teacher"] .hero {
+  margin-bottom: 1rem;
+}
+
+body[data-student-page="teacher"] #welcome-profile,
+body[data-student-page="teacher"] #top-shop-btn {
+  display: none !important;
+}
+
+body[data-student-page="teacher"] #app-card {
+  position: relative;
+  padding-top: 1rem;
+}
+
+body[data-student-page="teacher"] #app-card > .top-row:first-child {
+  position: absolute;
+  right: 1rem;
+  top: 1rem;
+  justify-content: flex-end;
+  width: auto;
+  z-index: 5;
+}
+
+body[data-student-page="teacher"] .teacher-section-header {
+  padding-right: 8.5rem;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+body[data-student-page="teacher"] .teacher-section-header h3 {
+  margin: 0;
+}
+
+body[data-student-page="teacher"] .teacher-section-header .student-nav {
+  max-width: calc(100vw - 16rem);
+}
+
+.compact-check {
+  align-items: center;
+  display: inline-flex;
+  gap: 0.35rem;
+  white-space: nowrap;
+}
+
+.table-sort-btn {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 0;
+  font: inherit;
+  font-weight: 700;
+  text-align: left;
+}
+
+.table-filter-input {
+  min-width: 7rem;
+  width: 100%;
+  padding: 0.35rem 0.45rem;
+}
+
+.date-header-label {
+  display: grid;
+  gap: 0.25rem;
+  font-weight: 800;
+}
+
+.date-header-label input {
+  min-width: 8.5rem;
+  padding: 0.35rem 0.45rem;
+}
+
+.alert-open-row {
+  background: #fff1f2;
+}
+
+.alert-resolved-row {
+  background: #ecfdf5;
+}
+
+.status-colour-pill {
+  border-radius: 999px;
+  display: inline-block;
+  min-width: 4.3rem;
+  padding: 0.2rem 0.55rem;
+  text-align: center;
+}
+
+.status-red {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-yellow {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-green {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.status-note-list {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0.35rem 0 1rem;
+}
+
+@media (max-width: 850px) {
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
 .mc-choice {
   margin-top: 0;
   min-width: 3.1rem;

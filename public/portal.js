@@ -13,7 +13,6 @@ const loginForm = document.getElementById("login-form");
 const signupName = document.getElementById("signup-name");
 const signupEmail = document.getElementById("signup-email");
 const signupPassword = document.getElementById("signup-password");
-const signupGrade = document.getElementById("signup-grade");
 const signupClass = document.getElementById("signup-class");
 
 const loginEmail = document.getElementById("login-email");
@@ -29,6 +28,10 @@ const topShopBtn = document.getElementById("top-shop-btn");
 
 const studentView = document.getElementById("student-view");
 const studentDailyPanel = document.getElementById("student-daily-panel");
+const studentAssessmentPanel = document.getElementById("student-assessment-panel");
+const assessmentList = document.getElementById("assessment-list");
+const assessmentSubmitBtn = document.getElementById("assessment-submit-btn");
+const assessmentMessage = document.getElementById("assessment-message");
 const studentProfilePanel = document.getElementById("student-profile-panel");
 const studentTodayReviewPage = document.getElementById("student-today-review-page");
 const studentAvatarShopPage = document.getElementById("student-avatar-shop-page");
@@ -105,10 +108,39 @@ const loadOverviewBtn = document.getElementById("load-overview-btn");
 const teacherMessage = document.getElementById("teacher-message");
 const teacherBatchMessage = document.getElementById("teacher-batch-message");
 const teacherGroupMessage = document.getElementById("teacher-group-message");
+const teacherMainTitle = document.getElementById("teacher-main-title");
 const teacherSummary = document.getElementById("teacher-summary");
+const teacherAlertList = document.getElementById("teacher-alert-list");
+const teacherStatusClassInput = document.getElementById("teacher-status-class-input");
+const teacherStatusTopicInput = document.getElementById("teacher-status-topic-input");
+const teacherStatusSubtypeInput = document.getElementById("teacher-status-subtype-input");
+const teacherStatusLoadBtn = document.getElementById("teacher-status-load-btn");
+const teacherStatusTable = document.getElementById("teacher-status-table");
+const teacherStudentTools = document.getElementById("teacher-student-tools");
+const teacherStudentTabContent = document.getElementById("teacher-student-tab-content");
+const teacherAlertTabContent = document.getElementById("teacher-alert-tab-content");
+const teacherStatusTabContent = document.getElementById("teacher-status-tab-content");
+const teacherClassScopeTabContent = document.getElementById("teacher-class-scope-tab-content");
+const teacherClassScopeName = document.getElementById("teacher-class-scope-name");
+const teacherClassScopeLoadBtn = document.getElementById("teacher-class-scope-load-btn");
+const teacherClassScopeMinDifficulty = document.getElementById("teacher-class-scope-min-difficulty");
+const teacherClassScopeMaxDifficulty = document.getElementById("teacher-class-scope-max-difficulty");
+const teacherClassScopeTopics = document.getElementById("teacher-class-scope-topics");
+const teacherClassScopeSubtype = document.getElementById("teacher-class-scope-subtype");
+const teacherClassScopeAddBtn = document.getElementById("teacher-class-scope-add-btn");
+const teacherClassScopeList = document.getElementById("teacher-class-scope-list");
+const teacherClassScopeSaveBtn = document.getElementById("teacher-class-scope-save-btn");
 const teacherTableWrap = document.getElementById("teacher-table-wrap");
 const teacherBatchTableWrap = document.getElementById("teacher-batch-table-wrap");
 const teacherBatchGroupSelect = document.getElementById("teacher-batch-group-select");
+const teacherBatchClassInput = document.getElementById("teacher-batch-class-input");
+const teacherBatchSetClassBtn = document.getElementById("teacher-batch-set-class-btn");
+const teacherClassTableWrap = document.getElementById("teacher-class-table-wrap");
+const teacherGroupTableWrap = document.getElementById("teacher-group-table-wrap");
+const newClassGroupName = document.getElementById("new-class-group-name");
+const newClassGroupType = document.getElementById("new-class-group-type");
+const addClassGroupBtn = document.getElementById("add-class-group-btn");
+const deleteSelectedClassGroupBtn = document.getElementById("delete-selected-class-group-btn");
 const teacherSelectAllStudentsBtn = document.getElementById("teacher-select-all-students-btn");
 const teacherClearSelectedStudentsBtn = document.getElementById("teacher-clear-selected-students-btn");
 const teacherBatchAssignGroupBtn = document.getElementById("teacher-batch-assign-group-btn");
@@ -129,11 +161,22 @@ const teacherScopeAddBtn = document.getElementById("teacher-scope-add-btn");
 const teacherScopeList = document.getElementById("teacher-scope-list");
 const teacherScopeSaveBtn = document.getElementById("teacher-scope-save-btn");
 const wrongFeedbackDialog = document.getElementById("wrong-feedback-dialog");
+const statusDetailDialog = document.getElementById("status-detail-dialog");
+const statusDetailTitle = document.getElementById("status-detail-title");
+const statusDetailBody = document.getElementById("status-detail-body");
+const alertWrongDialog = document.getElementById("alert-wrong-dialog");
+const alertWrongTitle = document.getElementById("alert-wrong-title");
+const alertWrongBody = document.getElementById("alert-wrong-body");
+const classGroupDetailDialog = document.getElementById("class-group-detail-dialog");
+const classGroupDetailTitle = document.getElementById("class-group-detail-title");
+const classGroupDetailBody = document.getElementById("class-group-detail-body");
 const teacherStudentPage = document.getElementById("teacher-student-page");
 const teacherStudentPageTitle = document.getElementById("teacher-student-page-title");
 const teacherStudentBackBtn = document.getElementById("teacher-student-back-btn");
 const teacherStudentPageMessage = document.getElementById("teacher-student-page-message");
 const teacherStudentPageStats = document.getElementById("teacher-student-page-stats");
+const teacherStudentRadarWrap = document.getElementById("teacher-student-radar-wrap");
+const teacherStudentClassTitles = document.getElementById("teacher-student-class-titles");
 const teacherStudentTopicLvMatrix = document.getElementById("teacher-student-topic-lv-matrix");
 const teacherStudentGroupAssign = document.getElementById("teacher-student-group-assign");
 const teacherStudentSaveGroupsBtn = document.getElementById("teacher-student-save-groups-btn");
@@ -150,6 +193,7 @@ let supabase = null;
 let authToken = "";
 let me = null;
 let clientConfig = null;
+let initPromise = null;
 const DIAMOND_RULE_TOOLTIP =
   "Diamond rules: Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily streak bonus (finish >=5/day): 3d +5, 7d +10, 14d +20, 21d +40.";
 let verifiedBrowserEmail = "";
@@ -157,6 +201,7 @@ const STUDENT_THEME_KEY = "student_theme_mode";
 const STUDENT_PAGE_KEY = "student_page_tab";
 const TEACHER_PAGE_KEY = "teacher_page_tab";
 const STUDENT_FORCE_PROFILE_ONCE_KEY = "student_force_profile_once";
+const STUDENT_ASSESSMENT_CACHE_PREFIX = "student_initial_assessment_v2_";
 const questionStartTimes = new Map();
 let teacherStudentViewData = null;
 let difficultyOrder = ["lv2", "lv3", "lv4", "lv5", "lv5*", "lv5**"];
@@ -165,7 +210,20 @@ const selectedTeacherStudentIds = new Set();
 let currentGroupMemberIds = [];
 const selectedGroupMemberIds = new Set();
 let teacherStudentBackTarget = "dashboard";
+let currentTeacherPage = "dashboard";
 let latestTeacherOverviewStudents = [];
+let teacherOverviewDate = "";
+let latestTeacherClasses = [];
+let latestTeacherGroups = [];
+let teacherStudentSort = { key: "full_name", dir: "asc" };
+const teacherStudentFilters = {};
+let teacherStatusSort = { key: "sub_type", dir: "asc" };
+const teacherStatusFilters = {};
+const selectedClassNames = new Set();
+const selectedClassGroupIds = new Set();
+let classGroupStudentPickerSort = { key: "full_name", dir: "asc" };
+const classGroupStudentPickerFilters = {};
+const classGroupStudentPickerSelected = new Set();
 let dailyAssignments = [];
 let dailyDate = "";
 let currentDailyIndex = 0;
@@ -180,7 +238,13 @@ const roughWorkHighlighterColorByQuestion = new Map();
 let activeRoughQuestionId = null;
 let roughKeyboardBound = false;
 let groupScopeDraft = [];
+let classScopeDraft = [];
+let assessmentQuestions = [];
+const assessmentAnswers = new Map();
+let initialAssessmentRequired = false;
 let allScopeTopics = [];
+let latestStudentProgressTopics = [];
+let latestTeacherProgressStudents = [];
 let studentAvatarData = null;
 let todayMissionCompleted = false;
 let serverTokenBalance = 0;
@@ -375,16 +439,16 @@ function setMessage(el, text, type = "") {
 async function askWrongFeedbackChoice() {
   if (!wrongFeedbackDialog || typeof wrongFeedbackDialog.showModal !== "function") {
     return window.confirm(
-      "Is this a careless mistake?\nOK = Careless (you must do 1 extra question at the end today)\nCancel = Not understand"
+      "Why was it wrong?\nOK = Careless: one retest will be scheduled; pass it to keep your review schedule.\nCancel = Forgot: this type returns to learning mode."
     )
       ? "careless"
-      : "not_understand";
+      : "forgot";
   }
   return new Promise((resolve) => {
     const onClose = () => {
       wrongFeedbackDialog.removeEventListener("close", onClose);
       const v = String(wrongFeedbackDialog.returnValue || "").trim();
-      resolve(v === "careless" ? "careless" : "not_understand");
+      resolve(v === "careless" ? "careless" : "forgot");
     };
     wrongFeedbackDialog.addEventListener("close", onClose);
     wrongFeedbackDialog.showModal();
@@ -403,29 +467,39 @@ function normalizeScopeRow(row) {
 }
 
 function renderGroupScopeDraft() {
-  if (!teacherScopeList) return;
-  if (!groupScopeDraft.length) {
-    teacherScopeList.innerHTML = "<p>No scope rules (all topics allowed).</p>";
+  renderScopeDraftList(teacherScopeList, groupScopeDraft, "scope");
+}
+
+function renderClassScopeDraft() {
+  renderScopeDraftList(teacherClassScopeList, classScopeDraft, "class-scope");
+}
+
+function renderScopeDraftList(target, draft, removeKey) {
+  if (!target) return;
+  const rows = Array.isArray(draft) ? draft : [];
+  if (!rows.length) {
+    target.innerHTML = "<p>No scope rules (all topics allowed).</p>";
     return;
   }
-  teacherScopeList.innerHTML = groupScopeDraft
+  target.innerHTML = rows
     .map(
       (row, idx) => `
       <span class="stat">
         ${escapeHtml(row.min_difficulty || "lv2")} ~ ${escapeHtml(row.max_difficulty)} | ${escapeHtml(row.topic)}${
           row.sub_type ? ` | ${escapeHtml(row.sub_type)}` : ""
         }
-        <button type="button" class="secondary" data-scope-remove="${idx}">X</button>
+        <button type="button" class="secondary" data-${removeKey}-remove="${idx}">X</button>
       </span>
     `
     )
     .join("");
-  teacherScopeList.querySelectorAll("button[data-scope-remove]").forEach((btn) => {
+  target.querySelectorAll(`button[data-${removeKey}-remove]`).forEach((btn) => {
     btn.addEventListener("click", () => {
-      const idx = Number(btn.getAttribute("data-scope-remove"));
-      if (!Number.isInteger(idx) || idx < 0 || idx >= groupScopeDraft.length) return;
-      groupScopeDraft.splice(idx, 1);
-      renderGroupScopeDraft();
+      const idx = Number(btn.getAttribute(`data-${removeKey}-remove`));
+      if (!Number.isInteger(idx) || idx < 0 || idx >= rows.length) return;
+      rows.splice(idx, 1);
+      if (removeKey === "class-scope") renderClassScopeDraft();
+      else renderGroupScopeDraft();
     });
   });
 }
@@ -436,11 +510,12 @@ function getSelectedValues(selectEl) {
 }
 
 function renderScopeTopicOptions() {
-  if (!teacherScopeTopics) return;
   const topics = Array.isArray(allScopeTopics) ? allScopeTopics : [];
-  teacherScopeTopics.innerHTML = topics.length
+  const html = topics.length
     ? topics.map((t) => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("")
     : `<option value="" disabled>No topics available</option>`;
+  if (teacherScopeTopics) teacherScopeTopics.innerHTML = html;
+  if (teacherClassScopeTopics) teacherClassScopeTopics.innerHTML = html;
 }
 
 async function loadScopeTopicOptions() {
@@ -532,6 +607,11 @@ function loadDailyCursor(dateValue) {
 }
 
 async function switchStudentPage(page) {
+  if (initialAssessmentRequired) {
+    hideStudentLearningSurfacesForAssessment();
+    setMessage(studentMessage, "Complete the placement test first. Daily questions will open after it is submitted.", "success");
+    return;
+  }
   const requested =
     page === "profile"
       ? "profile"
@@ -541,6 +621,7 @@ async function switchStudentPage(page) {
           ? "settings"
           : "daily";
   const target = requested === "today-review" && !dailyReviewAvailable ? "daily" : requested;
+  if (studentAssessmentPanel) studentAssessmentPanel.hidden = true;
   document.body.setAttribute("data-student-page", target);
   saveStudentPagePreference(target);
   if (studentDailyPanel) studentDailyPanel.hidden = target !== "daily";
@@ -580,6 +661,56 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+function cssEscape(value) {
+  if (window.CSS?.escape) return window.CSS.escape(String(value));
+  return String(value).replace(/["\\]/g, "\\$&");
+}
+
+function shuffleCopy(items) {
+  const arr = Array.isArray(items) ? [...items] : [];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+function formatChoicesOnSeparateLines(text) {
+  return String(text || "")
+    .replace(/\s+([A-H])\.\s*/g, "\n$1. ")
+    .replace(/^\s+/, "");
+}
+
+function assessmentCacheKey() {
+  return `${STUDENT_ASSESSMENT_CACHE_PREFIX}${me?.user_id || "anonymous"}`;
+}
+
+function getCachedAssessmentQuestions() {
+  try {
+    const raw = localStorage.getItem(assessmentCacheKey());
+    const parsed = raw ? JSON.parse(raw) : null;
+    return Array.isArray(parsed?.questions) ? parsed.questions : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function setCachedAssessmentQuestions(questions) {
+  try {
+    localStorage.setItem(assessmentCacheKey(), JSON.stringify({ questions, cached_at: Date.now() }));
+  } catch (_error) {
+    // Cache is only for keeping the in-progress test stable.
+  }
+}
+
+function clearCachedAssessmentQuestions() {
+  try {
+    localStorage.removeItem(assessmentCacheKey());
+  } catch (_error) {
+    // Ignore storage failures.
+  }
+}
+
 function toBase64Url(bytes) {
   let binary = "";
   const chunkSize = 0x8000;
@@ -600,8 +731,9 @@ function buildKrokiTikzUrl(tikzSource) {
     ? source
     : [
         "\\documentclass[tikz,border=2pt]{standalone}",
+        "\\usepackage{amsmath}",
         "\\usepackage{tikz}",
-        "\\usetikzlibrary{angles,quotes,calc}",
+        "\\usetikzlibrary{angles,quotes,calc,arrows.meta,positioning,decorations.pathreplacing}",
         "\\begin{document}",
         source,
         "\\end{document}"
@@ -651,15 +783,15 @@ function sanitizeTikzBlockForPortal(block) {
   let s = String(block || "");
   // Keep renderer-safe labels in TikZ nodes.
   s = s.replace(/\\text\{([^}]*)\}/g, "$1");
-  // \node[...] at (...) $...$; -> \node[...] at (...) {...};
+  // \node[...] at (...) $...$; -> \node[...] at (...) {$...$};
   s = s.replace(
     /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\$([^$]+)\$\s*;/g,
-    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {${label}};`
+    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
   );
-  // \node[...] at (...) {$...$}; -> \node[...] at (...) {...};
+  // Keep math-mode labels as math-mode labels; bare \theta in text mode breaks TikZ renderers.
   s = s.replace(
     /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{\$([^$]+)\$\}\s*;/g,
-    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {${label}};`
+    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
   );
   // Avoid plain-text underscore parse errors after sanitization.
   s = s.replace(/\{([^{}]*?)h_a([^{}]*?)\}/g, (_m, a, b) => `{${a}h\\_a${b}}`);
@@ -1030,6 +1162,7 @@ function showAuthView() {
   authCard.hidden = false;
   appCard.hidden = true;
   studentView.hidden = true;
+  if (studentAssessmentPanel) studentAssessmentPanel.hidden = true;
   teacherView.hidden = true;
   if (teacherBatchPage) teacherBatchPage.hidden = true;
   if (teacherGroupPage) teacherGroupPage.hidden = true;
@@ -1046,9 +1179,9 @@ async function loadMe() {
 
   if (me.role === "teacher") {
     document.body.setAttribute("data-student-page", "teacher");
-    welcomeTitle.textContent = `Welcome, ${me.full_name}`;
-    welcomeSubtitle.textContent = "Teacher account: monitor student completion and accuracy.";
-    if (welcomeProfile) welcomeProfile.classList.remove("student-header");
+    if (welcomeTitle) welcomeTitle.textContent = "";
+    if (welcomeSubtitle) welcomeSubtitle.textContent = "";
+    if (welcomeProfile) welcomeProfile.hidden = true;
     if (welcomeAvatarImage) welcomeAvatarImage.textContent = "👩‍🏫";
     if (openAvatarShopBtn) openAvatarShopBtn.hidden = true;
     if (topShopBtn) topShopBtn.hidden = true;
@@ -1057,15 +1190,15 @@ async function loadMe() {
     studentView.hidden = true;
     const preferredTeacherPage = loadTeacherPagePreference();
     if (preferredTeacherPage === "groups") showTeacherGroupPage();
-    else if (preferredTeacherPage === "batch") showTeacherBatchPage();
+    else if (preferredTeacherPage === "alert" || preferredTeacherPage === "batch") showTeacherAlertPage();
     else showTeacherDashboardPage();
-    if (themeLightBtn) themeLightBtn.disabled = true;
-    if (themeDarkBtn) themeDarkBtn.disabled = true;
-    if (topChangePwBtn) topChangePwBtn.hidden = true;
+    if (themeLightBtn) themeLightBtn.disabled = false;
+    if (themeDarkBtn) themeDarkBtn.disabled = false;
+    if (topChangePwBtn) topChangePwBtn.hidden = false;
     if (topChangePwPanel) topChangePwPanel.hidden = true;
     applyStudentTheme("light");
     await loadScopeTopicOptions();
-    await loadTeacherOverview();
+    if (!latestTeacherOverviewStudents.length) await loadTeacherOverview();
     if (preferredTeacherPage === "groups" && teacherGroupSelect?.value) {
       try {
         await loadTeacherGroupStats();
@@ -1083,7 +1216,10 @@ async function loadMe() {
     }
     renderStudentWelcomeName();
     welcomeSubtitle.textContent = "";
-    if (welcomeProfile) welcomeProfile.classList.add("student-header");
+    if (welcomeProfile) {
+      welcomeProfile.hidden = false;
+      welcomeProfile.classList.add("student-header");
+    }
     renderWelcomeAvatar(me.selected_avatar || null);
     applyStyleShopVisuals();
     if (openAvatarShopBtn) openAvatarShopBtn.hidden = true;
@@ -1097,6 +1233,8 @@ async function loadMe() {
     if (themeDarkBtn) themeDarkBtn.disabled = false;
     if (topChangePwBtn) topChangePwBtn.hidden = false;
     applyStudentTheme(loadStudentTheme());
+    const needsAssessment = await loadInitialAssessmentIfNeeded();
+    if (needsAssessment) return;
     await loadStudentDaily();
     const forceProfile = String(localStorage.getItem(STUDENT_FORCE_PROFILE_ONCE_KEY) || "") === "1";
     if (forceProfile) localStorage.removeItem(STUDENT_FORCE_PROFILE_ONCE_KEY);
@@ -1313,13 +1451,6 @@ async function renderCurrentDailyQuestion() {
       try {
         const started = questionStartTimes.get(questionId);
         const elapsedSeconds = started ? Math.max(1, Math.round((Date.now() - started) / 1000)) : null;
-        let carelessError = false;
-        const expectedAnswer = String(q.answer_text || "").trim();
-        const judged = compareAnswerClient(answer, expectedAnswer);
-        if (judged === false) {
-          const feedbackChoice = await askWrongFeedbackChoice();
-          carelessError = feedbackChoice === "careless";
-        }
         const submitResult = await api("/api/student/submit", {
           method: "POST",
           body: JSON.stringify({
@@ -1327,7 +1458,8 @@ async function renderCurrentDailyQuestion() {
             assignment_date: assignmentDate,
             answer_text: answer,
             time_spent_seconds: elapsedSeconds,
-            careless_error: carelessError
+            careless_error: false,
+            defer_wrong_feedback: true
           })
         });
         const reward = Number(submitResult?.token_reward || 0);
@@ -1335,12 +1467,31 @@ async function renderCurrentDailyQuestion() {
           serverTokenBalance = Number(submitResult.token_balance);
           setTopTokenBadge();
         }
-        if (reward > 0) setMessage(studentMessage, `Answer submitted. +${reward} tokens`, "success");
+        const progressMessage = String(submitResult?.progress_feedback?.message || "").trim();
+        if (progressMessage) {
+          setMessage(studentMessage, progressMessage, submitResult?.progress_feedback?.teacher_notified ? "error" : "success");
+        } else if (reward > 0) setMessage(studentMessage, `Answer submitted. +${reward} diamonds`, "success");
         else setMessage(studentMessage, "Answer submitted.", "success");
         clearDrawStateForQuestion(questionId);
         lastSubmittedQuestionId = questionId;
         questionStartTimes.delete(questionId);
         await loadStudentDaily();
+        if (submitResult?.needs_wrong_feedback === true) {
+          const feedbackChoice = await askWrongFeedbackChoice();
+          const feedbackResult = await api(`/api/student/submit/${encodeURIComponent(questionId)}/wrong-feedback`, {
+            method: "POST",
+            body: JSON.stringify({
+              assignment_date: assignmentDate,
+              time_spent_seconds: elapsedSeconds,
+              careless_error: feedbackChoice === "careless"
+            })
+          });
+          const feedbackMessage = String(feedbackResult?.progress_feedback?.message || "").trim();
+          if (feedbackMessage) {
+            setMessage(studentMessage, feedbackMessage, feedbackResult?.progress_feedback?.teacher_notified ? "error" : "success");
+          }
+          await loadStudentDaily();
+        }
       } catch (error) {
         setMessage(studentMessage, error.message, "error");
       } finally {
@@ -1786,6 +1937,7 @@ async function loadStudentDaily() {
     const date = today();
     const data = await api(`/api/student/daily?date=${encodeURIComponent(date)}`, { timeout_ms: 15000 });
     const alertData = await api("/api/student/alerts", { timeout_ms: 5000 }).catch(() => ({ alerts: [] }));
+    const alerts = Array.isArray(alertData.alerts) ? alertData.alerts : [];
 
     dailyAssignments = Array.isArray(data.assignments) ? data.assignments : [];
     dailyDate = data.date || date;
@@ -1827,6 +1979,13 @@ async function loadStudentDaily() {
     }
 
     setMessage(studentMessage, "");
+    if (alerts.length) {
+      setMessage(
+        studentMessage,
+        `Teacher support needed: ${alerts.length} question type(s) are paused. Your teacher has been notified. Please find your teacher for help with those question types.`,
+        "error"
+      );
+    }
 
     await renderCurrentDailyQuestion();
     renderTodayReview(dailyAssignments, dailyDate);
@@ -1842,6 +2001,91 @@ async function loadStudentDaily() {
     if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = true;
     setMessage(studentMessage, error.message || "Failed to load daily questions.", "error");
   }
+}
+
+function hideStudentLearningSurfacesForAssessment() {
+  if (studentDailyPanel) studentDailyPanel.hidden = true;
+  if (studentProfilePanel) studentProfilePanel.hidden = true;
+  if (studentTodayReviewPage) studentTodayReviewPage.hidden = true;
+  if (studentAvatarShopPage) studentAvatarShopPage.hidden = true;
+  if (studentOwnedOverlay) studentOwnedOverlay.hidden = true;
+  if (studentSettingsPage) studentSettingsPage.hidden = true;
+  if (studentAssessmentPanel) studentAssessmentPanel.hidden = false;
+}
+
+function renderAssessmentQuestions(questions) {
+  if (!assessmentList) return;
+  assessmentAnswers.clear();
+  assessmentQuestions = Array.isArray(questions) ? questions : [];
+  if (!assessmentQuestions.length) {
+    assessmentList.innerHTML = "<p>No placement questions are available. Please tell your teacher.</p>";
+    return;
+  }
+  assessmentList.innerHTML = assessmentQuestions
+    .map(
+      (q, idx) => `
+      <article class="question-card is-pending" data-assessment-question="${escapeHtml(q.id)}">
+        <div class="question-head">
+          <div class="question-head-main">
+            <strong>Question ${idx + 1}</strong>
+          </div>
+        </div>
+        <div class="question-split">
+          <div class="question-main">
+            <div class="question-body assessment-question-body"></div>
+            <div class="mc-wrap">
+              <div class="answer-label">Choose one answer</div>
+              <div class="mc-options assessment-options">
+                ${detectMcLabels(q.latex_code)
+                  .map((label) => `<button type="button" class="mc-choice" data-assessment-answer="${escapeHtml(label)}">${escapeHtml(label)}</button>`)
+                  .join("")}
+                <button type="button" class="mc-choice dont-know-choice" data-assessment-answer="">Don't know</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+    `
+    )
+    .join("");
+  assessmentQuestions.forEach((q) => {
+    const card = assessmentList.querySelector(`[data-assessment-question="${cssEscape(String(q.id))}"]`);
+    const body = card?.querySelector(".assessment-question-body");
+    if (body) renderQuestionBody(body, formatChoicesOnSeparateLines(q.latex_code || ""), { multiline: true });
+  });
+  assessmentList.querySelectorAll("button[data-assessment-answer]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const card = btn.closest("[data-assessment-question]");
+      const questionId = String(card?.getAttribute("data-assessment-question") || "");
+      const answer = String(btn.getAttribute("data-assessment-answer") ?? "");
+      if (!questionId) return;
+      assessmentAnswers.set(questionId, answer);
+      card.querySelectorAll("button[data-assessment-answer]").forEach((b) => b.classList.remove("selected"));
+      btn.classList.add("selected");
+    });
+  });
+}
+
+async function loadInitialAssessmentIfNeeded() {
+  if (!studentAssessmentPanel) return false;
+  const data = await api("/api/student/initial-assessment", { timeout_ms: 15000 });
+  if (data.completed) {
+    initialAssessmentRequired = false;
+    clearCachedAssessmentQuestions();
+    studentAssessmentPanel.hidden = true;
+    return false;
+  }
+  initialAssessmentRequired = true;
+  hideStudentLearningSurfacesForAssessment();
+  let questions = getCachedAssessmentQuestions();
+  if (!questions || !questions.length) {
+    questions = shuffleCopy(data.questions || []);
+    setCachedAssessmentQuestions(questions);
+  }
+  renderAssessmentQuestions(questions);
+  await typeset(assessmentList);
+  setMessage(studentMessage, "");
+  return true;
 }
 
 async function loadStudentStats() {
@@ -1877,8 +2121,8 @@ function renderClassTitles(titles) {
     .join("");
 }
 
-function renderStudentRadar(data) {
-  if (!studentRadarWrap) return;
+function renderRadarChart(target, data, labelsForLegend = { student: "You", classAvg: "Class Avg" }) {
+  if (!target) return;
   const studentMetrics = data?.radar?.student || {};
   const classMetrics = data?.radar?.class_avg || {};
   const labels = Array.isArray(data?.radar?.labels) && data.radar.labels.length === 5
@@ -1909,7 +2153,7 @@ function renderStudentRadar(data) {
   const rings = [20, 40, 60, 80, 100]
     .map((rPct) => `<polygon points="${poly(labels.map(() => rPct))}" fill="none" stroke="#d4e3f8" stroke-width="1" />`)
     .join("");
-  studentRadarWrap.innerHTML = `
+  target.innerHTML = `
     <svg viewBox="0 0 ${size} ${size}" class="radar-svg" role="img" aria-label="Student vs class average radar chart">
       ${rings}
       ${axis}
@@ -1918,10 +2162,14 @@ function renderStudentRadar(data) {
       <circle cx="${cx}" cy="${cy}" r="2.2" fill="#1b3f6e" />
     </svg>
     <div class="inline-tools">
-      <span class="stat"><span class="legend-dot legend-student"></span> You</span>
-      <span class="stat"><span class="legend-dot legend-class"></span> Class Avg</span>
+      <span class="stat"><span class="legend-dot legend-student"></span> ${escapeHtml(labelsForLegend.student)}</span>
+      <span class="stat"><span class="legend-dot legend-class"></span> ${escapeHtml(labelsForLegend.classAvg)}</span>
     </div>
   `;
+}
+
+function renderStudentRadar(data) {
+  renderRadarChart(studentRadarWrap, data, { student: "You", classAvg: "Class Avg" });
 }
 
 function renderWelcomeAvatar(selectedAvatar) {
@@ -2299,7 +2547,7 @@ function percentOrNull(correct, total) {
   return Math.round((correct / total) * 100);
 }
 
-function renderTopicLevelMatrix(target, records, levels) {
+function renderTopicLevelMatrix(target, records, levels, onTopicClick = showStudentTopicStatus) {
   if (!target) return;
   const lvList = Array.isArray(levels) && levels.length ? levels : difficultyOrder;
   const rows = buildTopicLevelAccuracy(records, lvList);
@@ -2322,7 +2570,7 @@ function renderTopicLevelMatrix(target, records, levels) {
         .join("");
       const overallPct = percentOrNull(row.overall.correct, row.overall.total);
       const overallClass = overallPct !== null && overallPct < 60 ? "matrix-cell low" : "matrix-cell";
-      return `<tr><td>${escapeHtml(row.topic)}</td>${lvCells}<td class="${overallClass}">${overallPct === null ? "-" : `${overallPct}%`}</td></tr>`;
+      return `<tr><td><button type="button" class="student-link" data-topic-status="${escapeHtml(row.topic)}">${escapeHtml(row.topic)}</button></td>${lvCells}<td class="${overallClass}">${overallPct === null ? "-" : `${overallPct}%`}</td></tr>`;
     })
     .join("");
 
@@ -2332,12 +2580,237 @@ function renderTopicLevelMatrix(target, records, levels) {
       <tbody>${tbody}</tbody>
     </table>
   `;
+  target.querySelectorAll("button[data-topic-status]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      Promise.resolve(onTopicClick(String(btn.getAttribute("data-topic-status") || ""))).catch((error) => {
+        setMessage(teacherStudentPageMessage || teacherMessage || studentMessage, error.message || "Failed to load status.", "error");
+      });
+    });
+  });
+}
+
+function renderTeacherStatusTopicMatrix(target, records, levels, progressTopics) {
+  renderTopicLevelMatrix(target, records, levels, (topic) => showTeacherStudentTopicStatus(topic, progressTopics || []));
+}
+
+async function showTeacherStudentTopicStatus(topic, topics) {
+  if (!statusDetailDialog || !statusDetailBody) return;
+  const entry = (topics || []).find((x) => String(x.topic || "") === topic);
+  if (statusDetailTitle) statusDetailTitle.textContent = `${topic || "Topic"} Status`;
+  const bankData = await api(`/api/teacher/question-bank/subtopics?topic=${encodeURIComponent(topic)}`).catch(() => ({ subtopics: [] }));
+  const progressRows = entry?.subtopics || [];
+  const progressByKey = new Map(
+    progressRows.map((row) => [`${String(row.difficulty || "")}|||${String(row.sub_type || "")}`, row])
+  );
+  const bankRows = Array.isArray(bankData.subtopics) ? bankData.subtopics : [];
+  const fallbackRows = progressRows.map((row) => ({ difficulty: row.difficulty, topic, sub_type: row.sub_type }));
+  const rows = (bankRows.length ? bankRows : fallbackRows).map((row) => {
+    const progress = progressByKey.get(`${String(row.difficulty || "")}|||${String(row.sub_type || "")}`) || {};
+    return {
+      difficulty: row.difficulty || progress.difficulty || "",
+      topic,
+      sub_type: row.sub_type || progress.sub_type || "",
+      status: progress.status || "",
+      note: progress.status ? teacherStatusNote(progress.status) : ""
+    };
+  });
+  const columns = [
+    ["status", "Status"],
+    ["difficulty", "Level"],
+    ["sub_type", "Sub-topic"],
+    ["note", "Note"]
+  ];
+  const tableRows = rows;
+  const optionHtmlFor = (key) => {
+    const values = [...new Set(tableRows.map((row) => String(row[key] ?? "").trim() || "-"))].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    return `<option value="">All</option>${values
+      .map((v) => `<option value="${escapeHtml(v)}" ${String(teacherStatusFilters[key] || "") === v ? "selected" : ""}>${escapeHtml(v)}</option>`)
+      .join("")}`;
+  };
+  const filteredRows = tableRows.filter((row) =>
+    columns.every(([key]) => {
+      const value = String(teacherStatusFilters[key] || "").trim();
+      if (!value) return true;
+      return String(row[key] ?? "").trim() === value;
+    })
+  );
+  const sortedRows = [...filteredRows].sort((a, b) => {
+    const av = a[teacherStatusSort.key];
+    const bv = b[teacherStatusSort.key];
+    const cmp = String(av ?? "").localeCompare(String(bv ?? ""), undefined, { numeric: true });
+    return teacherStatusSort.dir === "desc" ? -cmp : cmp;
+  });
+  statusDetailBody.innerHTML = `
+    <div class="status-note-list">
+      ${["UNKNOWN", "KNOWN", "MASTERED", "BACKFILL", "FROZEN"]
+        .map((s) => `<div><strong>${s}:</strong> ${escapeHtml(teacherStatusNote(s))}</div>`)
+        .join("")}
+    </div>
+    ${
+      tableRows.length
+        ? `
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  ${columns.map(([key, label]) => `<th><button type="button" class="table-sort-btn" data-status-sort="${key}">${escapeHtml(label)}${teacherStatusSort.key === key ? (teacherStatusSort.dir === "asc" ? " ↑" : " ↓") : ""}</button></th>`).join("")}
+                </tr>
+                <tr>
+                  ${columns.map(([key]) => `<th><select class="table-filter-input" data-status-filter="${key}">${optionHtmlFor(key)}</select></th>`).join("")}
+                </tr>
+              </thead>
+              <tbody>
+                ${sortedRows
+                  .map(
+                    (row) => `
+                    <tr>
+                      <td>${escapeHtml(row.status || "-")}</td>
+                      <td>${escapeHtml(row.difficulty || "-")}</td>
+                      <td><button type="button" class="student-link" data-status-subtopic="${escapeHtml(row.sub_type || "")}" data-status-level="${escapeHtml(row.difficulty || "")}">${escapeHtml(row.sub_type || "-")}</button></td>
+                      <td>${escapeHtml(row.note || "-")}</td>
+                    </tr>
+                  `
+                  )
+                  .join("")}
+              </tbody>
+            </table>
+          </div>
+        `
+        : "<p>No learning status recorded for this topic yet.</p>"
+    }
+  `;
+  statusDetailBody.querySelectorAll("button[data-status-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = String(btn.getAttribute("data-status-sort") || "");
+      if (teacherStatusSort.key === key) teacherStatusSort.dir = teacherStatusSort.dir === "asc" ? "desc" : "asc";
+      else teacherStatusSort = { key, dir: "asc" };
+      showTeacherStudentTopicStatus(topic, topics);
+    });
+  });
+  statusDetailBody.querySelectorAll("select[data-status-filter]").forEach((select) => {
+    select.addEventListener("change", () => {
+      teacherStatusFilters[String(select.getAttribute("data-status-filter") || "")] = select.value;
+      showTeacherStudentTopicStatus(topic, topics);
+    });
+  });
+  statusDetailBody.querySelectorAll("button[data-status-subtopic]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await showTeacherAnsweredQuestionsForSubtopic(
+        topic,
+        String(btn.getAttribute("data-status-subtopic") || ""),
+        String(btn.getAttribute("data-status-level") || "")
+      );
+    });
+  });
+  if (typeof statusDetailDialog.showModal === "function") statusDetailDialog.showModal();
+  else statusDetailDialog.setAttribute("open", "open");
+}
+
+async function showTeacherAnsweredQuestionsForSubtopic(topic, subType, difficulty = "") {
+  if (!alertWrongDialog || !alertWrongBody) return;
+  const student = teacherStudentViewData?.student || {};
+  const records = (teacherStudentViewData?.records || []).filter((row) => {
+    const p = row.problems || {};
+    return (
+      String(p.topic || "") === String(topic || "") &&
+      String(p.sub_type || "") === String(subType || "") &&
+      (!difficulty || String(p.difficulty || "") === String(difficulty || ""))
+    );
+  });
+  if (alertWrongTitle) alertWrongTitle.textContent = `${student.full_name || "Student"} - ${subType || "Sub-topic"} Answered Questions`;
+  alertWrongBody.innerHTML = records.length
+    ? records
+        .map((row) => {
+          const q = row.problems || {};
+          return `
+            <article class="question-card ${row.is_correct === true ? "is-correct" : "is-wrong"}">
+              <div class="question-head">
+                <strong>${escapeHtml(row.assignment_date || "-")}</strong>
+                <span class="badge">${row.is_correct === true ? "Correct" : "Wrong"}</span>
+              </div>
+              <div class="question-body" id="status-history-q-${escapeHtml(row.id)}"></div>
+              <div class="summary">
+                <div class="stat"><strong>Student answer:</strong> ${escapeHtml(row.answer_text || "-")}</div>
+                <div class="stat"><strong>Correct answer:</strong> ${escapeHtml(q.answer_text || "-")}</div>
+              </div>
+            </article>
+          `;
+        })
+        .join("")
+    : "<p>This student has not answered questions in this sub-topic yet.</p>";
+  for (const row of records) {
+    const body = alertWrongBody.querySelector(`#status-history-q-${cssEscape(String(row.id))}`);
+    if (body) renderQuestionBody(body, row.problems?.latex_code || "", { multiline: true });
+  }
+  await typeset(alertWrongBody);
+  if (statusDetailDialog?.open) statusDetailDialog.close();
+  if (typeof alertWrongDialog.showModal === "function") alertWrongDialog.showModal();
+  else alertWrongDialog.setAttribute("open", "open");
+}
+
+function studentStatusSymbol(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "MASTERED") return "Green";
+  if (s === "KNOWN" || s === "BACKFILL") return "Yellow";
+  return "Red";
+}
+
+function studentStatusLabel(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "MASTERED") return "Mastered";
+  if (s === "KNOWN" || s === "BACKFILL") return "Learning on track";
+  return "Needs work";
+}
+
+function studentStatusColourClass(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "MASTERED") return "status-green";
+  if (s === "KNOWN" || s === "BACKFILL") return "status-yellow";
+  return "status-red";
+}
+
+function teacherStatusNote(status) {
+  const s = String(status || "").toUpperCase();
+  const notes = {
+    UNKNOWN: "Learning now: student needs cross-day correct answers.",
+    KNOWN: "Review mode: student is following the spaced review schedule.",
+    MASTERED: "Mastered: review cycle completed.",
+    BACKFILL: "Backfill: checking skipped lower-level foundations.",
+    FROZEN: "Frozen: paused for teacher support after repeated errors."
+  };
+  return notes[s] || "No status yet.";
+}
+
+function showStudentTopicStatus(topic) {
+  if (!statusDetailDialog || !statusDetailBody) return;
+  const entry = latestStudentProgressTopics.find((x) => String(x.topic || "") === topic);
+  if (statusDetailTitle) statusDetailTitle.textContent = topic || "Learning Status";
+  const rows = entry?.subtopics || [];
+  statusDetailBody.innerHTML = rows.length
+    ? rows
+        .map(
+          (row) => `
+        <div class="stat">
+          <strong class="status-colour-pill ${studentStatusColourClass(row.status)}">${studentStatusSymbol(row.status)}</strong>
+          ${escapeHtml(row.difficulty || "-")} / ${escapeHtml(row.sub_type || "-")}
+          <span class="badge">${escapeHtml(studentStatusLabel(row.status))}</span>
+        </div>
+      `
+        )
+        .join("")
+    : "<p>No learning status recorded for this topic yet.</p>";
+  if (typeof statusDetailDialog.showModal === "function") statusDetailDialog.showModal();
+  else statusDetailDialog.setAttribute("open", "open");
 }
 
 async function loadStudentReview() {
   if (!studentReviewList) return;
-  const data = await api("/api/student/review");
+  const [data, progressData] = await Promise.all([
+    api("/api/student/review"),
+    api("/api/student/progress").catch(() => ({ topics: [] }))
+  ]);
   const allRecords = Array.isArray(data.records) ? data.records : [];
+  latestStudentProgressTopics = Array.isArray(progressData.topics) ? progressData.topics : [];
   renderTopicLevelMatrix(studentTopicLvMatrix, allRecords, difficultyOrder);
   populateTopicFilter(reviewFilterTopic, allRecords, reviewFilterTopic?.value || "");
   const filtered = filterReviewRecords(allRecords, {
@@ -2352,21 +2825,69 @@ async function loadStudentReview() {
 }
 
 function renderTeacherTable(students) {
+  if (!teacherTableWrap) return;
+  currentTeacherStudentIds = students.map((s) => String(s.student_id || "")).filter(Boolean);
   if (!students.length) {
     teacherTableWrap.innerHTML = "<p>No student accounts found.</p>";
     return;
   }
 
-  const rows = students
+  const dateLabel = teacherOverviewDate || teacherDate?.value || today();
+  const columns = [
+    ["full_name", "Student"],
+    ["class_name", "Class"],
+    ["initial_test_level", "Initial test level"],
+    ["submitted", `Answered in ${dateLabel}`],
+    ["questions_answered", "Answered (All Time)"],
+    ["correct_percentage", "Correct %"],
+    ["average_time_seconds", "Avg Time / Q"],
+    ["longest_streak_days", "Longest Streak"],
+    ["finished_today", "5+ Done"],
+    ["active_alerts", "Alerts"]
+  ];
+  const optionHtmlFor = (key) => {
+    const values = [...new Set(students.map((student) => {
+      if (key === "finished_today") return student.finished_today ? "Finished" : "Not Yet";
+      if (key === "average_time_seconds") return formatSeconds(student.average_time_seconds || 0);
+      if (key === "correct_percentage") return `${student.correct_percentage || 0}%`;
+      return String(student[key] ?? "").trim() || "-";
+    }))].sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+    return `<option value="">All</option>${values.map((v) => `<option value="${escapeHtml(v)}" ${String(teacherStudentFilters[key] || "") === String(v) ? "selected" : ""}>${escapeHtml(v)}</option>`).join("")}`;
+  };
+  const filtered = students.filter((student) =>
+    columns.every(([key]) => {
+      const filterValue = String(teacherStudentFilters[key] || "").trim().toLowerCase();
+      if (!filterValue) return true;
+      const raw =
+        key === "finished_today"
+          ? (student.finished_today ? "Finished" : "Not Yet")
+          : key === "average_time_seconds"
+            ? formatSeconds(student.average_time_seconds || 0)
+            : key === "correct_percentage"
+              ? `${student.correct_percentage || 0}%`
+              : student[key];
+      return String(raw ?? "").toLowerCase().includes(filterValue);
+    })
+  );
+  const sorted = [...filtered].sort((a, b) => {
+    const key = teacherStudentSort.key;
+    const av = a[key];
+    const bv = b[key];
+    const an = Number(av);
+    const bn = Number(bv);
+    const cmp = Number.isFinite(an) && Number.isFinite(bn) ? an - bn : String(av ?? "").localeCompare(String(bv ?? ""));
+    return teacherStudentSort.dir === "desc" ? -cmp : cmp;
+  });
+
+  const rows = sorted
     .map(
       (student) => `
       <tr class="${student.finished_today ? "" : "incomplete-row"}">
         <td><button type="button" class="student-link" data-profile-student="${escapeHtml(student.student_id)}">${escapeHtml(
           student.full_name || "-"
         )}</button></td>
-        <td>${escapeHtml(student.email || "-")}</td>
-        <td>${escapeHtml(student.grade || "-")}</td>
         <td>${escapeHtml(student.class_name || "-")}</td>
+        <td>${escapeHtml(student.initial_test_level || "-")}</td>
         <td>${student.submitted || 0}</td>
         <td>${student.questions_answered || 0}</td>
         <td>${student.correct_percentage || 0}%</td>
@@ -2386,23 +2907,48 @@ function renderTeacherTable(students) {
     <table>
       <thead>
         <tr>
-          <th>Student</th>
-          <th>Email</th>
-          <th>Grade</th>
-          <th>Class</th>
-          <th>Answered (Selected Date)</th>
-          <th>Answered (All Time)</th>
-          <th>Correct %</th>
-          <th>Avg Time / Q</th>
-          <th>Longest Streak</th>
-          <th>5+ Done Today</th>
-          <th>Alerts</th>
+          ${columns.map(([key, label]) => `<th>${
+            key === "submitted"
+              ? `<label class="date-header-label">Answered in <input id="teacher-table-date-filter" type="date" value="${escapeHtml(dateLabel)}" /></label>`
+              : `<button type="button" class="table-sort-btn" data-teacher-sort="${key}">${escapeHtml(label)}${teacherStudentSort.key === key ? (teacherStudentSort.dir === "asc" ? " ↑" : " ↓") : ""}</button>`
+          }</th>`).join("")}
           <th>Actions</th>
+        </tr>
+        <tr>
+          ${columns.map(([key]) => `<th><select class="table-filter-input" data-teacher-filter="${key}">${optionHtmlFor(key)}</select></th>`).join("")}
+          <th></th>
         </tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
   `;
+
+  teacherTableWrap.querySelectorAll("button[data-teacher-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = String(btn.getAttribute("data-teacher-sort") || "");
+      if (teacherStudentSort.key === key) teacherStudentSort.dir = teacherStudentSort.dir === "asc" ? "desc" : "asc";
+      else teacherStudentSort = { key, dir: "asc" };
+      renderTeacherTable(latestTeacherOverviewStudents);
+    });
+  });
+  teacherTableWrap.querySelectorAll("select[data-teacher-filter]").forEach((input) => {
+    input.addEventListener("change", () => {
+      teacherStudentFilters[String(input.getAttribute("data-teacher-filter") || "")] = input.value;
+      renderTeacherTable(latestTeacherOverviewStudents);
+    });
+  });
+  const dateInput = teacherTableWrap.querySelector("#teacher-table-date-filter");
+  if (dateInput) {
+    dateInput.addEventListener("change", async () => {
+      teacherOverviewDate = dateInput.value || today();
+      if (teacherDate) teacherDate.value = teacherOverviewDate;
+      try {
+        await loadTeacherOverview();
+      } catch (error) {
+        setMessage(teacherMessage, error.message, "error");
+      }
+    });
+  }
 
   teacherTableWrap.querySelectorAll("button[data-profile-student]").forEach((btn) => {
     btn.addEventListener("click", async () => {
@@ -2436,6 +2982,7 @@ function renderTeacherTable(students) {
 
 function renderTeacherBatchTable(students) {
   if (!teacherBatchTableWrap) return;
+  currentTeacherStudentIds = students.map((s) => String(s.student_id || "")).filter(Boolean);
   if (!students.length) {
     teacherBatchTableWrap.innerHTML = "<p>No student accounts found.</p>";
     return;
@@ -2455,7 +3002,6 @@ function renderTeacherBatchTable(students) {
           student.full_name || "-"
         )}</button></td>
         <td>${escapeHtml(student.email || "-")}</td>
-        <td>${escapeHtml(student.grade || "-")}</td>
         <td>${escapeHtml(student.class_name || "-")}</td>
       </tr>
     `
@@ -2469,7 +3015,6 @@ function renderTeacherBatchTable(students) {
           <th>Select</th>
           <th>Student</th>
           <th>Email</th>
-          <th>Grade</th>
           <th>Class</th>
         </tr>
       </thead>
@@ -2527,8 +3072,501 @@ function renderGroupOptions(groups) {
 }
 
 async function loadTeacherGroups() {
-  const groups = await api("/api/teacher/groups");
+  const [groups, classes] = await Promise.all([
+    api("/api/teacher/groups"),
+    api("/api/teacher/classes").catch(() => [])
+  ]);
+  latestTeacherGroups = Array.isArray(groups) ? groups : [];
+  latestTeacherClasses = Array.isArray(classes) ? classes : [];
   renderGroupOptions(groups);
+  renderClassGroupTables();
+}
+
+function renderClassGroupTables() {
+  if (teacherClassTableWrap) {
+    teacherClassTableWrap.innerHTML = latestTeacherClasses.length
+      ? `
+        <table>
+          <thead><tr><th>Select</th><th>Class</th><th>Students</th><th>Avg Correct %</th><th>Avg Questions Done</th></tr></thead>
+          <tbody>
+            ${latestTeacherClasses
+              .map(
+                (c) => `
+                <tr>
+                  <td><input type="checkbox" data-class-select="${escapeHtml(c.name)}" ${selectedClassNames.has(String(c.name || "")) ? "checked" : ""} /></td>
+                  <td><button type="button" class="student-link" data-open-class="${escapeHtml(c.name)}">${escapeHtml(c.name)}</button></td>
+                  <td>${c.student_count || 0}</td>
+                  <td>${c.average_correct_percentage || 0}%</td>
+                  <td>${c.average_questions_done || 0}</td>
+                </tr>
+              `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      `
+      : "<p>No classes yet.</p>";
+  }
+  if (teacherGroupTableWrap) {
+    teacherGroupTableWrap.innerHTML = latestTeacherGroups.length
+      ? `
+        <table>
+          <thead><tr><th>Select</th><th>Group</th><th>Students</th><th>Avg Correct %</th><th>Avg Questions Done</th></tr></thead>
+          <tbody>
+            ${latestTeacherGroups
+              .map(
+                (g) => `
+                <tr>
+                  <td><input type="checkbox" data-group-select="${escapeHtml(g.id)}" ${selectedClassGroupIds.has(String(g.id || "")) ? "checked" : ""} /></td>
+                  <td><button type="button" class="student-link" data-open-group="${escapeHtml(g.id)}">${escapeHtml(g.name)}</button></td>
+                  <td>${g.member_count || 0}</td>
+                  <td>${g.average_correct_percentage || 0}%</td>
+                  <td>${g.average_questions_done || 0}</td>
+                </tr>
+              `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      `
+      : "<p>No groups yet.</p>";
+  }
+  document.querySelectorAll("input[data-class-select]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const name = String(input.getAttribute("data-class-select") || "");
+      if (input.checked) selectedClassNames.add(name);
+      else selectedClassNames.delete(name);
+    });
+  });
+  document.querySelectorAll("input[data-group-select]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const id = String(input.getAttribute("data-group-select") || "");
+      if (input.checked) selectedClassGroupIds.add(id);
+      else selectedClassGroupIds.delete(id);
+    });
+  });
+  document.querySelectorAll("button[data-open-class]").forEach((btn) => {
+    btn.addEventListener("click", async () => openClassGroupDialog("class", String(btn.getAttribute("data-open-class") || "")));
+  });
+  document.querySelectorAll("button[data-open-group]").forEach((btn) => {
+    btn.addEventListener("click", async () => openClassGroupDialog("group", String(btn.getAttribute("data-open-group") || "")));
+  });
+}
+
+async function openClassGroupDialog(kind, id) {
+  if (!classGroupDetailDialog || !classGroupDetailBody) return;
+  const item = kind === "class" ? latestTeacherClasses.find((c) => String(c.name) === String(id)) : latestTeacherGroups.find((g) => String(g.id) === String(id));
+  if (!item) return;
+  const title = kind === "class" ? `Class ${item.name}` : `Group ${item.name}`;
+  if (classGroupDetailTitle) classGroupDetailTitle.textContent = title;
+  classGroupDetailDialog.dataset.kind = kind;
+  classGroupDetailDialog.dataset.id = String(id);
+  classGroupDetailDialog.dataset.name = String(item.name || id);
+  await renderClassGroupTab("stat");
+  if (typeof classGroupDetailDialog.showModal === "function") classGroupDetailDialog.showModal();
+  else classGroupDetailDialog.setAttribute("open", "open");
+}
+
+async function renderClassGroupTab(tab) {
+  if (!classGroupDetailDialog || !classGroupDetailBody) return;
+  const kind = classGroupDetailDialog.dataset.kind;
+  const id = classGroupDetailDialog.dataset.id;
+  const name = classGroupDetailDialog.dataset.name;
+  classGroupDetailDialog.querySelectorAll("button[data-class-group-tab]").forEach((btn) => {
+    btn.classList.toggle("active", String(btn.getAttribute("data-class-group-tab")) === tab);
+  });
+  const students =
+    kind === "class"
+      ? latestTeacherOverviewStudents.filter((s) => String(s.class_name || "") === name)
+      : latestTeacherOverviewStudents.filter((s) => latestTeacherGroups.find((g) => String(g.id) === id)?.members?.includes?.(s.student_id));
+  if (tab === "students") {
+    const scopedStudents = students;
+    classGroupDetailBody.innerHTML = `
+      <div class="top-row"><h4>Student list</h4><button type="button" id="modal-add-student-btn">Add student</button></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Student</th><th>Email</th><th>Class</th><th>Initial Level</th><th>Done</th><th>Correct %</th><th>Remove</th></tr></thead>
+          <tbody>
+            ${scopedStudents
+              .map(
+                (s) => `<tr><td><button type="button" class="student-link" data-profile-student="${escapeHtml(s.student_id)}">${escapeHtml(s.full_name || "-")}</button></td><td>${escapeHtml(s.email || "-")}</td><td>${escapeHtml(s.class_name || "-")}</td><td>${escapeHtml(s.initial_test_level || "-")}</td><td>${s.questions_answered || 0}</td><td>${s.correct_percentage || 0}%</td><td><button type="button" class="secondary" data-modal-remove-student="${escapeHtml(s.student_id)}">Remove</button></td></tr>`
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    `;
+    classGroupDetailBody.querySelectorAll("button[data-profile-student]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        if (classGroupDetailDialog.open) classGroupDetailDialog.close();
+        teacherStudentBackTarget = kind === "class" || kind === "group" ? "groups" : teacherStudentBackTarget;
+        await openTeacherStudentPage(String(btn.getAttribute("data-profile-student") || ""));
+      });
+    });
+    classGroupDetailBody.querySelectorAll("button[data-modal-remove-student]").forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        const studentId = String(btn.getAttribute("data-modal-remove-student") || "");
+        if (!studentId) return;
+        if (kind === "class") {
+          await api(`/api/teacher/students/${encodeURIComponent(studentId)}/class`, {
+            method: "PUT",
+            body: JSON.stringify({ class_name: "" })
+          });
+        } else {
+          await api(`/api/teacher/groups/${encodeURIComponent(id)}/remove-students`, {
+            method: "POST",
+            body: JSON.stringify({ student_ids: [studentId] })
+          });
+        }
+        await loadTeacherOverview();
+        await loadTeacherGroups();
+        await renderClassGroupTab("students");
+      });
+    });
+    classGroupDetailBody.querySelector("#modal-add-student-btn")?.addEventListener("click", async () => {
+      renderClassGroupStudentPicker(kind, id, name);
+    });
+    return;
+  }
+  if (tab === "scope") {
+    classGroupDetailBody.innerHTML = `<p class="hint">Use the Class Scope or Group Scope quick-edit panels below this dialog to edit scope for now.</p>`;
+    return;
+  }
+  if (tab === "status") {
+    classGroupDetailBody.innerHTML = `
+      <div class="inline-tools">
+        <input id="modal-status-topic" type="text" placeholder="Topic" />
+        <input id="modal-status-subtype" type="text" placeholder="Sub-topic" />
+        <button type="button" id="modal-load-status-btn">Load Status</button>
+      </div>
+      <div id="modal-status-table" class="table-wrap"></div>
+    `;
+    classGroupDetailBody.querySelector("#modal-load-status-btn")?.addEventListener("click", async () => {
+      const params = new URLSearchParams();
+      if (kind === "class") params.set("class_name", name);
+      const topic = classGroupDetailBody.querySelector("#modal-status-topic")?.value.trim();
+      const subType = classGroupDetailBody.querySelector("#modal-status-subtype")?.value.trim();
+      if (topic) params.set("topic", topic);
+      if (subType) params.set("sub_type", subType);
+      const data = await api(`/api/teacher/progress${params.toString() ? `?${params}` : ""}`);
+      const target = classGroupDetailBody.querySelector("#modal-status-table");
+      const allowedIds =
+        kind === "group"
+          ? new Set((latestTeacherGroups.find((g) => String(g.id) === id)?.members || []).map((x) => String(x)))
+          : null;
+      const rows = (data.students || [])
+        .filter((s) => !allowedIds || allowedIds.has(String(s.user_id || "")))
+        .map((s) => {
+          const flat = (s.topics || []).flatMap((t) => t.subtopics || []);
+          return `<tr><td>${escapeHtml(s.full_name || "-")}</td><td>${escapeHtml(s.class_name || "-")}</td><td>${flat.map((r) => `${escapeHtml(r.sub_type)}: ${escapeHtml(r.status)}`).join("<br>") || "-"}</td></tr>`;
+        })
+        .join("");
+      if (target) target.innerHTML = `<table><thead><tr><th>Student</th><th>Class</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
+    });
+    return;
+  }
+  classGroupDetailBody.innerHTML = `
+    <div class="summary">
+      <div class="stat"><strong>Average correct:</strong> ${itemValueForClassGroup(kind, id, "average_correct_percentage")}%</div>
+      <div class="stat"><strong>Average questions done:</strong> ${itemValueForClassGroup(kind, id, "average_questions_done")}</div>
+    </div>
+    <p class="hint">Topic x Level stat uses the student table data currently loaded in the dashboard.</p>
+  `;
+}
+
+function itemValueForClassGroup(kind, id, key) {
+  const item = kind === "class" ? latestTeacherClasses.find((c) => String(c.name) === String(id)) : latestTeacherGroups.find((g) => String(g.id) === String(id));
+  return item?.[key] || 0;
+}
+
+function renderClassGroupStudentPicker(kind, id, name) {
+  const memberIds = new Set(
+    kind === "group"
+      ? (latestTeacherGroups.find((g) => String(g.id) === String(id))?.members || []).map((x) => String(x))
+      : latestTeacherOverviewStudents.filter((s) => String(s.class_name || "") === String(name)).map((s) => String(s.student_id || ""))
+  );
+  const candidates = latestTeacherOverviewStudents.filter((s) => !memberIds.has(String(s.student_id || "")));
+  const columns = [
+    ["full_name", "Student"],
+    ["class_name", "Class"],
+    ["initial_test_level", "Initial Level"],
+    ["questions_answered", "Done"],
+    ["correct_percentage", "Correct %"]
+  ];
+  const optionHtmlFor = (key) => {
+    const values = [...new Set(candidates.map((s) => String(s[key] ?? "").trim() || "-"))].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true })
+    );
+    return `<option value="">All</option>${values
+      .map((v) => `<option value="${escapeHtml(v)}" ${String(classGroupStudentPickerFilters[key] || "") === v ? "selected" : ""}>${escapeHtml(v)}</option>`)
+      .join("")}`;
+  };
+  const filtered = candidates.filter((s) =>
+    columns.every(([key]) => {
+      const value = String(classGroupStudentPickerFilters[key] || "").trim();
+      if (!value) return true;
+      return String(s[key] ?? "").trim() === value;
+    })
+  );
+  const filteredIds = filtered.map((s) => String(s.student_id || "")).filter(Boolean);
+  const allFilteredSelected = filteredIds.length > 0 && filteredIds.every((sid) => classGroupStudentPickerSelected.has(sid));
+  const sorted = [...filtered].sort((a, b) => {
+    const av = a[classGroupStudentPickerSort.key];
+    const bv = b[classGroupStudentPickerSort.key];
+    const an = Number(av);
+    const bn = Number(bv);
+    const cmp = Number.isFinite(an) && Number.isFinite(bn) ? an - bn : String(av ?? "").localeCompare(String(bv ?? ""), undefined, { numeric: true });
+    return classGroupStudentPickerSort.dir === "desc" ? -cmp : cmp;
+  });
+  classGroupDetailBody.innerHTML = `
+    <div class="top-row">
+      <h4>Add student</h4>
+      <div class="inline-tools">
+        <button type="button" id="picker-add-selected-btn">Add selected</button>
+        <button type="button" class="secondary" id="picker-back-btn">Back</button>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th><label class="compact-check"><input type="checkbox" id="picker-select-all" ${allFilteredSelected ? "checked" : ""} /> Select all</label></th>${columns
+            .map(([key, label]) => `<th><button type="button" class="table-sort-btn" data-picker-sort="${key}">${escapeHtml(label)}${classGroupStudentPickerSort.key === key ? (classGroupStudentPickerSort.dir === "asc" ? " ↑" : " ↓") : ""}</button></th>`)
+            .join("")}</tr>
+          <tr><th></th>${columns
+            .map(([key]) => `<th><select class="table-filter-input" data-picker-filter="${key}">${optionHtmlFor(key)}</select></th>`)
+            .join("")}</tr>
+        </thead>
+        <tbody>
+          ${sorted
+            .map(
+              (s) => `
+              <tr>
+                <td><input type="checkbox" data-picker-student="${escapeHtml(s.student_id)}" ${classGroupStudentPickerSelected.has(String(s.student_id || "")) ? "checked" : ""} /></td>
+                <td>${escapeHtml(s.full_name || "-")}</td>
+                <td>${escapeHtml(s.class_name || "-")}</td>
+                <td>${escapeHtml(s.initial_test_level || "-")}</td>
+                <td>${s.questions_answered || 0}</td>
+                <td>${s.correct_percentage || 0}%</td>
+              </tr>
+            `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+  classGroupDetailBody.querySelectorAll("input[data-picker-student]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const sid = String(input.getAttribute("data-picker-student") || "");
+      if (input.checked) classGroupStudentPickerSelected.add(sid);
+      else classGroupStudentPickerSelected.delete(sid);
+    });
+  });
+  classGroupDetailBody.querySelector("#picker-select-all")?.addEventListener("change", (event) => {
+    const checked = Boolean(event.currentTarget.checked);
+    filteredIds.forEach((sid) => {
+      if (checked) classGroupStudentPickerSelected.add(sid);
+      else classGroupStudentPickerSelected.delete(sid);
+    });
+    renderClassGroupStudentPicker(kind, id, name);
+  });
+  classGroupDetailBody.querySelectorAll("button[data-picker-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = String(btn.getAttribute("data-picker-sort") || "");
+      if (classGroupStudentPickerSort.key === key) classGroupStudentPickerSort.dir = classGroupStudentPickerSort.dir === "asc" ? "desc" : "asc";
+      else classGroupStudentPickerSort = { key, dir: "asc" };
+      renderClassGroupStudentPicker(kind, id, name);
+    });
+  });
+  classGroupDetailBody.querySelectorAll("select[data-picker-filter]").forEach((select) => {
+    select.addEventListener("change", () => {
+      classGroupStudentPickerFilters[String(select.getAttribute("data-picker-filter") || "")] = select.value;
+      renderClassGroupStudentPicker(kind, id, name);
+    });
+  });
+  classGroupDetailBody.querySelector("#picker-back-btn")?.addEventListener("click", async () => renderClassGroupTab("students"));
+  classGroupDetailBody.querySelector("#picker-add-selected-btn")?.addEventListener("click", async () => {
+    const studentIds = [...classGroupStudentPickerSelected].filter(Boolean);
+    if (!studentIds.length) {
+      setMessage(teacherGroupMessage || teacherMessage, "Please select at least one student.", "error");
+      return;
+    }
+    if (kind === "class") {
+      await api("/api/teacher/students/class", {
+        method: "PUT",
+        body: JSON.stringify({ student_ids: studentIds, class_name: name })
+      });
+    } else {
+      await api(`/api/teacher/groups/${encodeURIComponent(id)}/add-students`, {
+        method: "POST",
+        body: JSON.stringify({ student_ids: studentIds })
+      });
+    }
+    classGroupStudentPickerSelected.clear();
+    await loadTeacherOverview();
+    await loadTeacherGroups();
+    await renderClassGroupTab("students");
+  });
+}
+
+async function loadTeacherAlerts() {
+  if (!teacherAlertList) return;
+  const data = await api("/api/teacher/alerts").catch(() => ({ alerts: [] }));
+  const alerts = Array.isArray(data.alerts) ? data.alerts : [];
+  const active = alerts.filter((a) => !a.is_resolved);
+  const resolved = alerts.filter((a) => a.is_resolved);
+  const renderRows = (items) =>
+    items
+      .map((a) => {
+        const profile = a.user_profiles || {};
+        return `
+          <tr class="${a.is_resolved ? "alert-resolved-row" : "alert-open-row"}">
+            <td><button type="button" class="student-link" data-profile-student="${escapeHtml(a.student_id)}">${escapeHtml(profile.full_name || "Student")}</button></td>
+            <td>${escapeHtml(profile.class_name || "-")}</td>
+            <td>${escapeHtml(a.sub_type || "-")}</td>
+            <td>${escapeHtml(a.topic || "-")}</td>
+            <td><button type="button" class="secondary" data-view-alert-wrong="${escapeHtml(a.id)}">View wrong answers</button></td>
+            <td>${a.is_resolved ? "Resolved" : `<button type="button" data-resolve-alert="${escapeHtml(a.id)}">Resolved</button>`}</td>
+          </tr>
+        `;
+      })
+      .join("");
+  teacherAlertList.innerHTML = alerts.length
+    ? `
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Student</th><th>Class</th><th>Sub-topic</th><th>Topic</th><th>Wrong answers</th><th>Action</th></tr></thead>
+          <tbody>${renderRows(active)}</tbody>
+        </table>
+      </div>
+      <h4>Archived Alerts</h4>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Student</th><th>Class</th><th>Sub-topic</th><th>Topic</th><th>Wrong answers</th><th>Status</th></tr></thead>
+          <tbody>${renderRows(resolved)}</tbody>
+        </table>
+      </div>
+    `
+    : "<p>No open learning alerts.</p>";
+  teacherAlertList.querySelectorAll("button[data-profile-student]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const studentId = String(btn.getAttribute("data-profile-student") || "");
+      if (!studentId) return;
+      teacherStudentBackTarget = "alert";
+      await openTeacherStudentPage(studentId);
+    });
+  });
+  teacherAlertList.querySelectorAll("button[data-view-alert-wrong]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await showAlertWrongAnswers(String(btn.getAttribute("data-view-alert-wrong") || ""));
+    });
+  });
+  teacherAlertList.querySelectorAll("button[data-resolve-alert]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const id = String(btn.getAttribute("data-resolve-alert") || "");
+      if (!id) return;
+      await api(`/api/teacher/alerts/${encodeURIComponent(id)}/resolve`, { method: "POST" });
+      await loadTeacherAlerts();
+      await loadTeacherOverview();
+    });
+  });
+}
+
+async function showAlertWrongAnswers(alertId) {
+  if (!alertWrongDialog || !alertWrongBody || !alertId) return;
+  const data = await api(`/api/teacher/alerts/${encodeURIComponent(alertId)}/wrong-answers`);
+  const alert = data.alert || {};
+  const profile = alert.user_profiles || {};
+  if (alertWrongTitle) alertWrongTitle.textContent = `${profile.full_name || "Student"} - ${alert.sub_type || "Wrong Answers"}`;
+  const records = Array.isArray(data.records) ? data.records : [];
+  alertWrongBody.innerHTML = records.length
+    ? records
+        .map((row) => {
+          const q = row.problems || {};
+          return `
+            <article class="question-card is-wrong">
+              <div class="question-head"><strong>${escapeHtml(row.assignment_date || "-")}</strong></div>
+              <div class="question-body" id="alert-wrong-q-${escapeHtml(row.id)}"></div>
+              <div class="summary">
+                <div class="stat"><strong>Student answer:</strong> ${escapeHtml(row.answer_text || "-")}</div>
+                <div class="stat"><strong>Correct answer:</strong> ${escapeHtml(q.answer_text || "-")}</div>
+              </div>
+            </article>
+          `;
+        })
+        .join("")
+    : "<p>No wrong answers found for this alert.</p>";
+  for (const row of records) {
+    const body = alertWrongBody.querySelector(`#alert-wrong-q-${cssEscape(String(row.id))}`);
+    if (body) renderQuestionBody(body, row.problems?.latex_code || "", { multiline: true });
+  }
+  await typeset(alertWrongBody);
+  if (typeof alertWrongDialog.showModal === "function") alertWrongDialog.showModal();
+  else alertWrongDialog.setAttribute("open", "open");
+}
+
+async function loadTeacherStatusTable() {
+  if (!teacherStatusTable) return;
+  const params = new URLSearchParams();
+  if (teacherStatusClassInput?.value.trim()) params.set("class_name", teacherStatusClassInput.value.trim());
+  if (teacherStatusTopicInput?.value.trim()) params.set("topic", teacherStatusTopicInput.value.trim());
+  if (teacherStatusSubtypeInput?.value.trim()) params.set("sub_type", teacherStatusSubtypeInput.value.trim());
+  const data = await api(`/api/teacher/progress${params.toString() ? `?${params}` : ""}`);
+  latestTeacherProgressStudents = Array.isArray(data.students) ? data.students : [];
+  if (!latestTeacherProgressStudents.length) {
+    teacherStatusTable.innerHTML = "<p>No matching student status found.</p>";
+    return;
+  }
+  const rows = latestTeacherProgressStudents
+    .map((student) => {
+      const flat = (student.topics || []).flatMap((t) => t.subtopics || []);
+      const cells = flat.length
+        ? flat.map((r) => `${escapeHtml(r.topic)} / ${escapeHtml(r.sub_type)}: <strong>${escapeHtml(r.status)}</strong>`).join("<br>")
+        : "-";
+      return `<tr><td>${escapeHtml(student.full_name || "-")}</td><td>${escapeHtml(student.class_name || "-")}</td><td>${cells}</td></tr>`;
+    })
+    .join("");
+  teacherStatusTable.innerHTML = `
+    <table>
+      <thead><tr><th>Student</th><th>Class</th><th>Status</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  `;
+}
+
+function addScopeRowsToDraft(draft, minDifficulty, maxDifficulty, topics, subType) {
+  if (!maxDifficulty || !topics.length) return { ok: false, message: "Scope needs Max Lv and at least one topic." };
+  const minIdx = minDifficulty ? difficultyOrder.indexOf(minDifficulty) : 0;
+  const maxIdx = difficultyOrder.indexOf(maxDifficulty);
+  if (maxIdx < 0 || minIdx < 0 || minIdx > maxIdx) {
+    return { ok: false, message: "Min Lv must be lower than or equal to Max Lv." };
+  }
+  for (const topic of topics) {
+    const row = normalizeScopeRow({
+      min_difficulty: minDifficulty || difficultyOrder[0] || "lv2",
+      max_difficulty: maxDifficulty,
+      topic,
+      sub_type: subType
+    });
+    const key = `${row.min_difficulty}|||${row.max_difficulty}|||${row.topic}|||${row.sub_type}`;
+    const exists = draft.some(
+      (x) => `${x.min_difficulty || ""}|||${x.max_difficulty || x.difficulty || ""}|||${x.topic}|||${x.sub_type}` === key
+    );
+    if (!exists) draft.push(row);
+  }
+  return { ok: true };
+}
+
+async function loadClassScope() {
+  const className = String(teacherClassScopeName?.value || "").trim();
+  if (!className) {
+    setMessage(teacherMessage, "Please enter a class name first.", "error");
+    return;
+  }
+  const data = await api(`/api/teacher/classes/${encodeURIComponent(className)}/scope`);
+  classScopeDraft = Array.isArray(data.scope_rules) ? data.scope_rules.map((row) => normalizeScopeRow(row)) : [];
+  renderClassScopeDraft();
+  setMessage(teacherMessage, `Loaded scope for class ${className}.`, "success");
 }
 
 async function loadTeacherGroupStats() {
@@ -2571,7 +3609,7 @@ async function loadTeacherGroupStats() {
                 m.full_name || "-"
               )}</button>
             </div>
-            <span class="badge">${escapeHtml(m.grade || "-")}</span>
+            <span class="badge">${escapeHtml(m.class_name || "-")}</span>
           </div>
           <p>${escapeHtml(m.email || "-")}</p>
           <div class="summary">
@@ -2612,12 +3650,40 @@ async function loadTeacherGroupStats() {
 
 function showTeacherDashboardPage() {
   saveTeacherPagePreference("dashboard");
+  currentTeacherPage = "dashboard";
+  if (teacherMainTitle) teacherMainTitle.textContent = "Teacher - Student";
   if (teacherView) teacherView.hidden = false;
   if (teacherBatchPage) teacherBatchPage.hidden = true;
   if (teacherGroupPage) teacherGroupPage.hidden = true;
   if (teacherStudentPage) teacherStudentPage.hidden = true;
+  if (teacherStudentTools) teacherStudentTools.hidden = true;
+  if (teacherStudentTabContent) teacherStudentTabContent.hidden = false;
+  if (teacherAlertTabContent) teacherAlertTabContent.hidden = true;
+  if (teacherStatusTabContent) teacherStatusTabContent.hidden = true;
+  if (teacherClassScopeTabContent) teacherClassScopeTabContent.hidden = true;
   [teacherDashboardLink, teacherDashboardLink2, teacherDashboardLink3].forEach((el) => el && el.classList.add("active"));
   [teacherBatchLink, teacherBatchLink2, teacherBatchLink3].forEach((el) => el && el.classList.remove("active"));
+  [teacherGroupsLink, teacherGroupsLink2, teacherGroupsLink3].forEach((el) => el && el.classList.remove("active"));
+  if (!teacherTableWrap?.innerHTML.trim() && latestTeacherOverviewStudents.length) {
+    renderTeacherTable(latestTeacherOverviewStudents);
+  }
+}
+
+function showTeacherAlertPage() {
+  saveTeacherPagePreference("alert");
+  currentTeacherPage = "alert";
+  if (teacherMainTitle) teacherMainTitle.textContent = "Teacher - Alert";
+  if (teacherView) teacherView.hidden = false;
+  if (teacherBatchPage) teacherBatchPage.hidden = true;
+  if (teacherGroupPage) teacherGroupPage.hidden = true;
+  if (teacherStudentPage) teacherStudentPage.hidden = true;
+  if (teacherStudentTools) teacherStudentTools.hidden = true;
+  if (teacherStudentTabContent) teacherStudentTabContent.hidden = true;
+  if (teacherAlertTabContent) teacherAlertTabContent.hidden = false;
+  if (teacherStatusTabContent) teacherStatusTabContent.hidden = true;
+  if (teacherClassScopeTabContent) teacherClassScopeTabContent.hidden = true;
+  [teacherDashboardLink, teacherDashboardLink2, teacherDashboardLink3].forEach((el) => el && el.classList.remove("active"));
+  [teacherBatchLink, teacherBatchLink2, teacherBatchLink3].forEach((el) => el && el.classList.add("active"));
   [teacherGroupsLink, teacherGroupsLink2, teacherGroupsLink3].forEach((el) => el && el.classList.remove("active"));
 }
 
@@ -2630,24 +3696,19 @@ function showTeacherStudentPage() {
 
 function showTeacherGroupPage() {
   saveTeacherPagePreference("groups");
+  currentTeacherPage = "groups";
   if (teacherView) teacherView.hidden = true;
   if (teacherBatchPage) teacherBatchPage.hidden = true;
   if (teacherGroupPage) teacherGroupPage.hidden = false;
   if (teacherStudentPage) teacherStudentPage.hidden = true;
+  if (teacherStudentTools) teacherStudentTools.hidden = true;
   [teacherDashboardLink, teacherDashboardLink2, teacherDashboardLink3].forEach((el) => el && el.classList.remove("active"));
   [teacherBatchLink, teacherBatchLink2, teacherBatchLink3].forEach((el) => el && el.classList.remove("active"));
   [teacherGroupsLink, teacherGroupsLink2, teacherGroupsLink3].forEach((el) => el && el.classList.add("active"));
 }
 
 function showTeacherBatchPage() {
-  saveTeacherPagePreference("batch");
-  if (teacherView) teacherView.hidden = true;
-  if (teacherBatchPage) teacherBatchPage.hidden = false;
-  if (teacherGroupPage) teacherGroupPage.hidden = true;
-  if (teacherStudentPage) teacherStudentPage.hidden = true;
-  [teacherDashboardLink, teacherDashboardLink2, teacherDashboardLink3].forEach((el) => el && el.classList.remove("active"));
-  [teacherBatchLink, teacherBatchLink2, teacherBatchLink3].forEach((el) => el && el.classList.add("active"));
-  [teacherGroupsLink, teacherGroupsLink2, teacherGroupsLink3].forEach((el) => el && el.classList.remove("active"));
+  showTeacherAlertPage();
 }
 
 async function applyTeacherStudentFilters() {
@@ -2666,16 +3727,19 @@ async function applyTeacherStudentFilters() {
 }
 
 async function openTeacherStudentPage(studentId) {
-  const [statsData, groupsData, allGroups] = await Promise.all([
+  const [statsData, groupsData, allGroups, progressData] = await Promise.all([
     api(`/api/teacher/students/${encodeURIComponent(studentId)}/stats`),
     api(`/api/teacher/students/${encodeURIComponent(studentId)}/groups`),
-    api("/api/teacher/groups")
+    api("/api/teacher/groups"),
+    api(`/api/teacher/progress?class_name=&topic=&sub_type=`).catch(() => ({ students: [] }))
   ]);
   const student = statsData.student || {};
   const stats = statsData.stats || {};
   const records = Array.isArray(statsData.records) ? statsData.records : [];
   const selectedGroupIds = new Set((groupsData || []).map((g) => Number(g.group_id)));
-  teacherStudentViewData = { student, stats, records, selectedGroupIds, allGroups };
+  const progressStudent = (progressData.students || []).find((s) => String(s.user_id || "") === String(studentId)) || {};
+  const progressTopics = Array.isArray(progressStudent.topics) ? progressStudent.topics : [];
+  teacherStudentViewData = { student, stats, records, selectedGroupIds, allGroups, progressTopics };
 
   if (teacherStudentPageTitle) {
     teacherStudentPageTitle.textContent = `Student Profile: ${student.full_name || "Student"}`;
@@ -2683,40 +3747,25 @@ async function openTeacherStudentPage(studentId) {
   if (teacherStudentPageStats) {
     const titles = Array.isArray(statsData.class_titles) ? statsData.class_titles : [];
     teacherStudentPageStats.innerHTML = `
-      <div class="stat"><strong>Name:</strong> ${escapeHtml(student.full_name || "-")}</div>
-      <div class="stat"><strong>Email:</strong> ${escapeHtml(student.email || "-")}</div>
-      <div class="stat"><strong>Grade:</strong> ${escapeHtml(student.grade || "-")}</div>
       <div class="stat"><strong>Class:</strong> ${escapeHtml(student.class_name || "-")}</div>
       <div class="stat"><strong>Done:</strong> ${stats.questions_done || 0}</div>
       <div class="stat"><strong>Correct:</strong> ${stats.correct_percentage || 0}%</div>
       <div class="stat"><strong>Avg Time:</strong> ${formatSeconds(stats.average_time_seconds || 0)}</div>
-      ${titles
-        .map(
-          (t) =>
-            `<div class="stat"><strong>${escapeHtml(String(t.aspect_name || "Aspect"))}:</strong> ${escapeHtml(
-              String(t.title || "-")
-            )} · ${escapeHtml(String(t.student_name || "-"))}</div>`
-        )
-        .join("")}
     `;
-  }
-  if (teacherStudentClassInput) {
-    teacherStudentClassInput.value = String(student.class_name || "");
+    if (teacherStudentClassTitles) {
+      teacherStudentClassTitles.innerHTML = titles
+          .map(
+            (t) =>
+              `<div class="stat"><strong>${escapeHtml(String(t.aspect_name || "Aspect"))}:</strong> ${escapeHtml(
+                String(t.title || "-")
+              )} · ${escapeHtml(String(t.student_name || "-"))}</div>`
+          )
+          .join("");
+    }
+    renderRadarChart(teacherStudentRadarWrap, statsData, { student: "Student", classAvg: "Class Avg" });
   }
 
-  renderTopicLevelMatrix(teacherStudentTopicLvMatrix, records, difficultyOrder);
-  if (teacherStudentGroupAssign) {
-    teacherStudentGroupAssign.innerHTML = (allGroups || [])
-      .map(
-        (g) => `
-      <label class="stat">
-        <input type="checkbox" data-teacher-student-group="${g.id}" ${selectedGroupIds.has(Number(g.id)) ? "checked" : ""} />
-        ${escapeHtml(g.name)}
-      </label>
-    `
-      )
-      .join("");
-  }
+  renderTeacherStatusTopicMatrix(teacherStudentTopicLvMatrix, records, difficultyOrder, progressTopics);
 
   populateTopicFilter(teacherStudentFilterTopic, records, teacherStudentFilterTopic?.value || "");
   await applyTeacherStudentFilters();
@@ -2724,10 +3773,11 @@ async function openTeacherStudentPage(studentId) {
 }
 
 async function loadTeacherOverview() {
-  const date = teacherDate.value || today();
+  const date = teacherOverviewDate || teacherDate?.value || today();
+  teacherOverviewDate = date;
   const groupId = String(teacherDashboardGroupSelect?.value || "").trim();
-  teacherDate.value = date;
-  setMessage(teacherMessage, "Loading teacher overview...");
+  if (teacherDate) teacherDate.value = date;
+  setMessage(teacherMessage, "");
 
   const qs = new URLSearchParams();
   qs.set("date", date);
@@ -2736,34 +3786,21 @@ async function loadTeacherOverview() {
   const students = Array.isArray(data.students) ? data.students : [];
   latestTeacherOverviewStudents = students;
 
-  const submittedTotal = students.reduce((acc, s) => acc + Number(s.submitted || 0), 0);
-  const answeredAllTime = students.reduce((acc, s) => acc + Number(s.questions_answered || 0), 0);
-  const finishedCount = students.filter((s) => s.finished_today).length;
-
-  teacherSummary.innerHTML = `
-    <div class="stat"><strong>Date:</strong> ${escapeHtml(data.date)}</div>
-    <div class="stat"><strong>Group:</strong> ${
-      groupId && teacherDashboardGroupSelect
-        ? escapeHtml(teacherDashboardGroupSelect.options[teacherDashboardGroupSelect.selectedIndex]?.text || "Selected Group")
-        : "All Students"
-    }</div>
-    <div class="stat"><strong>Students:</strong> ${data.total_students}</div>
-    <div class="stat"><strong>Answered (Date):</strong> ${submittedTotal}</div>
-    <div class="stat"><strong>Answered (All):</strong> ${answeredAllTime}</div>
-    <div class="stat"><strong>Finished 5+:</strong> ${finishedCount}</div>
-  `;
+  if (teacherSummary) teacherSummary.innerHTML = "";
 
   renderTeacherTable(students);
   renderTeacherBatchTable(students);
+  await loadTeacherAlerts();
   try {
     await loadTeacherGroups();
   } catch (_error) {
     // Group tables may be unavailable before DB migration; keep overview usable.
   }
-  setMessage(teacherMessage, "Teacher overview loaded.", "success");
+  setMessage(teacherMessage, "");
 }
 
 async function refreshAuthState() {
+  if (!supabase?.auth) return;
   const { data } = await supabase.auth.getSession();
   const session = data.session;
   authToken = session?.access_token || "";
@@ -2778,6 +3815,12 @@ async function refreshAuthState() {
 }
 
 async function init() {
+  if (initPromise) return initPromise;
+  initPromise = initInternal();
+  return initPromise;
+}
+
+async function initInternal() {
   try {
     if (typeof createClient !== "function") {
       await new Promise((resolve, reject) => {
@@ -2830,9 +3873,19 @@ async function init() {
           .join("")}`;
         renderScopeTopicOptions();
       }
+      if (teacherClassScopeMinDifficulty) {
+        teacherClassScopeMinDifficulty.innerHTML = `<option value="">Min Lv</option>${difficulties
+          .map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`)
+          .join("")}`;
+      }
+      if (teacherClassScopeMaxDifficulty) {
+        teacherClassScopeMaxDifficulty.innerHTML = `<option value="">Max Lv</option>${difficulties
+          .map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`)
+          .join("")}`;
+      }
     }
 
-    teacherDate.value = today();
+    if (teacherDate) teacherDate.value = today();
 
     supabase.auth.onAuthStateChange(async (_event, session) => {
       authToken = session?.access_token || "";
@@ -2855,6 +3908,14 @@ async function init() {
   }
 }
 
+async function ensureSupabaseReady() {
+  if (supabase?.auth) return true;
+  await init();
+  if (supabase?.auth) return true;
+  setMessage(authMessage, "Login is still loading. Please wait a moment and try again.", "error");
+  return false;
+}
+
 signupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setMessage(authMessage, "Creating account...");
@@ -2866,7 +3927,6 @@ signupForm.addEventListener("submit", async (event) => {
         email: signupEmail.value,
         password: signupPassword.value,
         full_name: signupName.value,
-        grade: signupGrade.value,
         class_name: signupClass?.value || ""
       })
     });
@@ -2881,6 +3941,7 @@ signupForm.addEventListener("submit", async (event) => {
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setMessage(authMessage, "Checking login account...");
+  if (!(await ensureSupabaseReady())) return;
   const typedEmail = normalizeEmail(loginEmail.value);
 
   let browserCheck = { enforced: false };
@@ -2941,20 +4002,33 @@ loginEmail.addEventListener("input", () => {
 });
 
 logoutBtn.addEventListener("click", async () => {
-  await supabase.auth.signOut();
+  if (supabase?.auth) await supabase.auth.signOut();
   verifiedBrowserEmail = "";
   if (topChangePwPanel) topChangePwPanel.hidden = true;
   showAuthView();
   setMessage(authMessage, "Logged out.", "success");
 });
 
-loadOverviewBtn.addEventListener("click", async () => {
-  try {
-    await loadTeacherOverview();
-  } catch (error) {
-    setMessage(teacherMessage, error.message, "error");
-  }
-});
+if (loadOverviewBtn) {
+  loadOverviewBtn.addEventListener("click", async () => {
+    try {
+      await loadTeacherOverview();
+    } catch (error) {
+      setMessage(teacherMessage, error.message, "error");
+    }
+  });
+}
+
+if (teacherStatusLoadBtn) {
+  teacherStatusLoadBtn.addEventListener("click", async () => {
+    try {
+      await loadTeacherStatusTable();
+      setMessage(teacherMessage, "Status table loaded.", "success");
+    } catch (error) {
+      setMessage(teacherMessage, error.message || "Failed to load status table.", "error");
+    }
+  });
+}
 
 if (teacherDashboardGroupSelect) {
   teacherDashboardGroupSelect.addEventListener("change", async () => {
@@ -3053,6 +4127,7 @@ if (changePwBtn) {
     }
 
     setMessage(changePwMessage, "Updating password...");
+    if (!(await ensureSupabaseReady())) return;
     const verify = await supabase.auth.signInWithPassword({ email: me.email, password: current });
     if (verify.error) {
       setMessage(changePwMessage, "Current password is incorrect.", "error");
@@ -3085,6 +4160,43 @@ if (studentProfileLink) {
 if (studentTodayReviewLink) {
   studentTodayReviewLink.addEventListener("click", async () => {
     await switchStudentPage("today-review");
+  });
+}
+
+if (assessmentSubmitBtn) {
+  assessmentSubmitBtn.addEventListener("click", async () => {
+    const missingCount = assessmentQuestions.filter((q) => !assessmentAnswers.has(String(q.id))).length;
+    if (missingCount) {
+      setMessage(assessmentMessage || studentMessage, `Please answer all questions first. ${missingCount} left.`, "error");
+      return;
+    }
+    try {
+      assessmentSubmitBtn.disabled = true;
+      const answers = assessmentQuestions.map((q) => ({
+        question_id: Number(q.id),
+        answer_text: assessmentAnswers.get(String(q.id))
+      }));
+      const result = await api("/api/student/initial-assessment/submit", {
+        method: "POST",
+        body: JSON.stringify({ answers }),
+        timeout_ms: 15000
+      });
+      const counts = result.counts || {};
+      setMessage(
+        assessmentMessage || studentMessage,
+        `Placement completed. Starting level: ${result.start_level || "-"}. Lv2 ${counts.lv2 || 0}/3, Lv3 ${counts.lv3 || 0}/3, Lv4 ${counts.lv4 || 0}/3, Lv5 ${counts.lv5 || 0}/3.`,
+        "success"
+      );
+      initialAssessmentRequired = false;
+      clearCachedAssessmentQuestions();
+      if (studentAssessmentPanel) studentAssessmentPanel.hidden = true;
+      await loadStudentDaily();
+      await switchStudentPage("daily");
+    } catch (error) {
+      setMessage(assessmentMessage || studentMessage, error.message || "Failed to submit placement test.", "error");
+    } finally {
+      assessmentSubmitBtn.disabled = false;
+    }
   });
 }
 
@@ -3152,7 +4264,11 @@ if (closeDailyOverlayBtn) {
 
 if (closeSettingsOverlayBtn) {
   closeSettingsOverlayBtn.addEventListener("click", async () => {
-    await switchStudentPage("profile");
+    if (me?.role === "teacher") {
+      if (studentSettingsPage) studentSettingsPage.hidden = true;
+    } else {
+      await switchStudentPage("profile");
+    }
   });
 }
 
@@ -3232,7 +4348,11 @@ if (closeDrawRevealBtn) {
 
 if (topChangePwBtn) {
   topChangePwBtn.addEventListener("click", async () => {
-    await switchStudentPage("settings");
+    if (me?.role === "teacher") {
+      if (studentSettingsPage) studentSettingsPage.hidden = false;
+    } else {
+      await switchStudentPage("settings");
+    }
     setMessage(changePwMessage, "");
   });
 }
@@ -3372,6 +4492,109 @@ if (teacherScopeSaveBtn) {
   });
 }
 
+if (addClassGroupBtn) {
+  addClassGroupBtn.addEventListener("click", async () => {
+    const name = String(newClassGroupName?.value || "").trim();
+    const type = String(newClassGroupType?.value || "class");
+    if (!name) {
+      setMessage(teacherGroupMessage || teacherMessage, "Name is required.", "error");
+      return;
+    }
+    try {
+      await api(type === "group" ? "/api/teacher/groups" : "/api/teacher/classes", {
+        method: "POST",
+        body: JSON.stringify({ name })
+      });
+      if (newClassGroupName) newClassGroupName.value = "";
+      await loadTeacherGroups();
+      setMessage(teacherGroupMessage || teacherMessage, `${type === "group" ? "Group" : "Class"} added.`, "success");
+    } catch (error) {
+      setMessage(teacherGroupMessage || teacherMessage, error.message, "error");
+    }
+  });
+}
+
+if (deleteSelectedClassGroupBtn) {
+  deleteSelectedClassGroupBtn.addEventListener("click", async () => {
+    if (!selectedClassNames.size && !selectedClassGroupIds.size) {
+      setMessage(teacherGroupMessage || teacherMessage, "Please select at least one class or group.", "error");
+      return;
+    }
+    if (!confirm("Delete selected classes/groups? Classes will be removed from students; groups will be deleted.")) return;
+    try {
+      for (const name of [...selectedClassNames]) {
+        await api(`/api/teacher/classes/${encodeURIComponent(name)}`, { method: "DELETE" });
+      }
+      for (const id of [...selectedClassGroupIds]) {
+        await api(`/api/teacher/groups/${encodeURIComponent(id)}`, { method: "DELETE" });
+      }
+      selectedClassNames.clear();
+      selectedClassGroupIds.clear();
+      await loadTeacherOverview();
+      await loadTeacherGroups();
+      setMessage(teacherGroupMessage || teacherMessage, "Selected class/group deleted.", "success");
+    } catch (error) {
+      setMessage(teacherGroupMessage || teacherMessage, error.message, "error");
+    }
+  });
+}
+
+document.querySelectorAll("button[data-class-group-tab]").forEach((btn) => {
+  btn.addEventListener("click", async () => {
+    await renderClassGroupTab(String(btn.getAttribute("data-class-group-tab") || "stat"));
+  });
+});
+
+if (teacherClassScopeLoadBtn) {
+  teacherClassScopeLoadBtn.addEventListener("click", async () => {
+    try {
+      await loadClassScope();
+    } catch (error) {
+      setMessage(teacherMessage, error.message || "Failed to load class scope.", "error");
+    }
+  });
+}
+
+if (teacherClassScopeAddBtn) {
+  teacherClassScopeAddBtn.addEventListener("click", () => {
+    const minDifficulty = String(teacherClassScopeMinDifficulty?.value || "").trim();
+    const maxDifficulty = String(teacherClassScopeMaxDifficulty?.value || "").trim();
+    const topics = getSelectedValues(teacherClassScopeTopics);
+    const subType = String(teacherClassScopeSubtype?.value || "").trim();
+    const result = addScopeRowsToDraft(classScopeDraft, minDifficulty, maxDifficulty, topics, subType);
+    if (!result.ok) {
+      setMessage(teacherMessage, result.message || "Invalid class scope.", "error");
+      return;
+    }
+    if (teacherClassScopeSubtype) teacherClassScopeSubtype.value = "";
+    if (teacherClassScopeTopics) [...teacherClassScopeTopics.options].forEach((o) => (o.selected = false));
+    renderClassScopeDraft();
+    setMessage(teacherMessage, "Class scope item added. Click Save Class Scope to apply.", "success");
+  });
+}
+
+if (teacherClassScopeSaveBtn) {
+  teacherClassScopeSaveBtn.addEventListener("click", async () => {
+    const className = String(teacherClassScopeName?.value || "").trim();
+    if (!className) {
+      setMessage(teacherMessage, "Please enter a class name first.", "error");
+      return;
+    }
+    try {
+      const payload = classScopeDraft
+        .map((row) => normalizeScopeRow(row))
+        .filter((row) => row.max_difficulty && row.topic);
+      await api(`/api/teacher/classes/${encodeURIComponent(className)}/scope`, {
+        method: "PUT",
+        body: JSON.stringify({ scopes: payload })
+      });
+      setMessage(teacherMessage, `Class scope saved for ${className}.`, "success");
+    } catch (error) {
+      setMessage(teacherMessage, error.message || "Failed to save class scope.", "error");
+    }
+  });
+}
+
 if (teacherSelectAllStudentsBtn) {
   teacherSelectAllStudentsBtn.addEventListener("click", () => {
     currentTeacherStudentIds.forEach((id) => selectedTeacherStudentIds.add(id));
@@ -3464,10 +4687,36 @@ if (teacherStudentSaveClassBtn) {
   });
 }
 
+if (teacherBatchSetClassBtn) {
+  teacherBatchSetClassBtn.addEventListener("click", async () => {
+    const className = String(teacherBatchClassInput?.value || "").trim();
+    const studentIds = [...selectedTeacherStudentIds].filter(Boolean);
+    if (!studentIds.length) {
+      setMessage(teacherBatchMessage || teacherMessage, "Please select at least one student.", "error");
+      return;
+    }
+    try {
+      const result = await api("/api/teacher/students/class", {
+        method: "PUT",
+        body: JSON.stringify({ student_ids: studentIds, class_name: className })
+      });
+      setMessage(
+        teacherBatchMessage || teacherMessage,
+        `Class ${className || "(blank)"} saved to ${result.updated || studentIds.length} student(s).`,
+        "success"
+      );
+      await loadTeacherOverview();
+    } catch (error) {
+      setMessage(teacherBatchMessage || teacherMessage, error.message || "Failed to update class.", "error");
+    }
+  });
+}
+
 if (teacherStudentBackBtn) {
   teacherStudentBackBtn.addEventListener("click", () => {
-    if (teacherStudentBackTarget === "groups") showTeacherGroupPage();
-    else if (teacherStudentBackTarget === "batch") showTeacherBatchPage();
+    const target = teacherStudentBackTarget || currentTeacherPage || loadTeacherPagePreference();
+    if (target === "groups") showTeacherGroupPage();
+    else if (target === "batch" || target === "alert") showTeacherAlertPage();
     else showTeacherDashboardPage();
   });
 }
@@ -3483,7 +4732,14 @@ if (teacherStudentBackBtn) {
   if (!btn) return;
   btn.addEventListener("click", async () => {
     showTeacherGroupPage();
-    if (teacherGroupSelect?.value) {
+    if (!latestTeacherGroups.length) {
+      try {
+        await loadTeacherGroups();
+      } catch (error) {
+        setMessage(teacherGroupMessage || teacherMessage, error.message, "error");
+      }
+    }
+    if (teacherGroupSelect?.value && !currentGroupMemberIds.length) {
       try {
         await loadTeacherGroupStats();
       } catch (error) {
@@ -3496,12 +4752,12 @@ if (teacherStudentBackBtn) {
 [teacherBatchLink, teacherBatchLink2, teacherBatchLink3].forEach((btn) => {
   if (!btn) return;
   btn.addEventListener("click", async () => {
-    showTeacherBatchPage();
-    if (!latestTeacherOverviewStudents.length) {
+    showTeacherAlertPage();
+    if (!teacherAlertList?.innerHTML.trim()) {
       try {
-        await loadTeacherOverview();
+        await loadTeacherAlerts();
       } catch (error) {
-        setMessage(teacherBatchMessage || teacherMessage, error.message, "error");
+        setMessage(teacherMessage, error.message, "error");
       }
     }
   });

@@ -282,8 +282,9 @@ function buildKrokiTikzUrl(tikzSource) {
     ? source
     : [
         "\\documentclass[tikz,border=2pt]{standalone}",
+        "\\usepackage{amsmath}",
         "\\usepackage{tikz}",
-        "\\usetikzlibrary{angles,quotes,calc}",
+        "\\usetikzlibrary{angles,quotes,calc,arrows.meta,positioning,decorations.pathreplacing}",
         "\\begin{document}",
         source,
         "\\end{document}"
@@ -326,15 +327,15 @@ function sanitizeTikzBlock(block) {
   let s = String(block || "");
   // Renderer-safe: avoid \text{...} inside TikZ labels.
   s = s.replace(/\\text\{([^}]*)\}/g, "$1");
-  // Fix malformed node labels: \node[...] at (...) $...$; -> \node[...] at (...) {...};
+  // Fix malformed node labels: \node[...] at (...) $...$; -> \node[...] at (...) {$...$};
   s = s.replace(
     /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\$([^$]+)\$\s*;/g,
-    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {${label}};`
+    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
   );
-  // Also normalize \node[...] at (...) {$...$}; -> \node[...] at (...) {...};
+  // Keep math-mode labels as math-mode labels; bare \theta in text mode breaks TikZ renderers.
   s = s.replace(
     /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{\$([^$]+)\$\}\s*;/g,
-    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {${label}};`
+    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
   );
   return s;
 }

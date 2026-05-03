@@ -7,13 +7,12 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/portal.css" />
+    <link rel="stylesheet" href="/portal.css?v=20260503g" />
   </head>
   <body>
     <main class="container">
       <header class="hero">
         <h1>Daily Exercise Portal</h1>
-        <p>Students complete 5 assigned questions every day. Teachers track progress instantly.</p>
       </header>
 
       <section id="auth-card" class="card">
@@ -34,10 +33,6 @@
             <label>
               Password
               <input id="signup-password" type="password" minlength="8" required />
-            </label>
-            <label>
-              Grade (students only)
-              <input id="signup-grade" type="text" placeholder="F1, F2, Grade 9..." />
             </label>
             <label>
               Class (students only)
@@ -96,6 +91,23 @@
 <section id="student-view" hidden>
           <p id="student-message" class="message"></p>
 
+          <section id="student-assessment-panel" class="subpanel" hidden>
+            <div class="top-row">
+              <h3>Initial Placement Test</h3>
+              <span class="stat">12 questions</span>
+            </div>
+            <div class="placement-instruction">
+              Complete the placement test first. Daily questions will open after it is submitted.
+              Please answer carefully so the system can choose your starting level and review plan.
+              If you do not know a question, do not guess; press "Don't know" so the level estimate is more accurate.
+            </div>
+            <div id="assessment-list" class="question-list"></div>
+            <div class="inline-tools">
+              <button id="assessment-submit-btn" type="button">Submit Placement Test</button>
+            </div>
+            <p id="assessment-message" class="message"></p>
+          </section>
+
           <section id="student-daily-panel" class="floating-daily-overlay">
             <button id="close-daily-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close daily">✕</button>
             <div class="inline-tools">
@@ -120,6 +132,7 @@
               </div>
               <div class="subpanel">
                 <h4>Topic x Level Accuracy</h4>
+                <p class="hint">Click a topic to see sub-topic learning status.</p>
                 <div id="student-topic-lv-matrix" class="table-wrap"></div>
               </div>
             </details>
@@ -198,55 +211,88 @@
             </div>
           </section>
 
-          <section id="student-settings-page" class="subpanel floating-settings-overlay" hidden>
-            <button id="close-settings-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close settings">✕</button>
-            <h4>Settings</h4>
-            <div class="inline-tools">
-              <span class="hint">Theme</span>
-              <div class="mode-switch" aria-label="Theme mode switch">
-                <button id="theme-light-btn" type="button" class="mode-btn">Light</button>
-                <button id="theme-dark-btn" type="button" class="mode-btn">Dark</button>
-              </div>
+        </section>
+
+        <section id="student-settings-page" class="subpanel floating-settings-overlay" hidden>
+          <button id="close-settings-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close settings">✕</button>
+          <h4>Settings</h4>
+          <div class="inline-tools">
+            <span class="hint">Theme</span>
+            <div class="mode-switch" aria-label="Theme mode switch">
+              <button id="theme-light-btn" type="button" class="mode-btn">Light</button>
+              <button id="theme-dark-btn" type="button" class="mode-btn">Dark</button>
             </div>
-            <h4>Change Password</h4>
-            <div class="inline-tools">
-              <input id="change-pw-current" type="password" placeholder="Current password" />
-              <input id="change-pw-new" type="password" placeholder="New password (min 8 chars)" />
-              <button id="change-pw-btn" type="button">Update Password</button>
-            </div>
-            <p id="change-pw-message" class="message"></p>
-          </section>
+          </div>
+          <h4>Change Password</h4>
+          <div class="inline-tools">
+            <input id="change-pw-current" type="password" placeholder="Current password" />
+            <input id="change-pw-new" type="password" placeholder="New password (min 8 chars)" />
+            <button id="change-pw-btn" type="button">Update Password</button>
+          </div>
+          <p id="change-pw-message" class="message"></p>
         </section>
 
         <section id="teacher-view" hidden>
-          <div class="top-row">
-            <h3>Teacher Dashboard</h3>
+          <div class="top-row teacher-section-header">
+            <h3 id="teacher-main-title">Student</h3>
             <div class="inline-tools">
               <div class="student-nav" aria-label="Teacher page switch">
-                <button id="teacher-dashboard-link" type="button" class="mode-btn">Dashboard</button>
-                <button id="teacher-batch-link" type="button" class="mode-btn">Batch Assign</button>
-                <button id="teacher-groups-link" type="button" class="mode-btn">Group Management</button>
+                <button id="teacher-dashboard-link" type="button" class="mode-btn">Student</button>
+                <button id="teacher-batch-link" type="button" class="mode-btn">Alert</button>
+                <button id="teacher-groups-link" type="button" class="mode-btn">Class and group</button>
               </div>
-              <select id="teacher-dashboard-group-select">
-                <option value="">All Students</option>
-              </select>
-              <input id="teacher-date" type="date" />
-              <button id="load-overview-btn" type="button">Load Overview</button>
             </div>
           </div>
           <p id="teacher-message" class="message"></p>
-          <div id="teacher-summary" class="summary"></div>
-          <div id="teacher-table-wrap" class="table-wrap"></div>
+          <section id="teacher-student-tab-content">
+            <div id="teacher-table-wrap" class="table-wrap"></div>
+          </section>
+          <section id="teacher-alert-tab-content" class="subpanel" hidden>
+            <h4>Alert</h4>
+            <div id="teacher-alert-list" class="summary"></div>
+          </section>
+          <section id="teacher-status-tab-content" class="subpanel" hidden>
+            <h4>Class / Sub-topic Status</h4>
+            <p class="hint">Statuses: UNKNOWN = learning now, KNOWN = spaced review, MASTERED = completed, BACKFILL = foundation check, FROZEN = teacher support needed.</p>
+            <div class="inline-tools">
+              <input id="teacher-status-class-input" type="text" placeholder="Class name" />
+              <input id="teacher-status-topic-input" type="text" placeholder="Topic" />
+              <input id="teacher-status-subtype-input" type="text" placeholder="Sub-topic" />
+              <button id="teacher-status-load-btn" type="button">Load Status</button>
+            </div>
+            <div id="teacher-status-table" class="table-wrap"></div>
+          </section>
+          <section id="teacher-class-scope-tab-content" class="subpanel" hidden>
+            <h4>Class Scope (Question Range)</h4>
+            <p class="hint">A student's questions must be inside the intersection of the class scope and every group scope they belong to.</p>
+            <div class="inline-tools">
+              <input id="teacher-class-scope-name" type="text" placeholder="Class name (e.g. 4A)" />
+              <button id="teacher-class-scope-load-btn" type="button" class="secondary">Load Class Scope</button>
+            </div>
+            <div class="inline-tools">
+              <select id="teacher-class-scope-min-difficulty">
+                <option value="">Min Lv</option>
+              </select>
+              <select id="teacher-class-scope-max-difficulty">
+                <option value="">Max Lv</option>
+              </select>
+              <select id="teacher-class-scope-topics" multiple size="6" aria-label="Select class scope topics"></select>
+              <input id="teacher-class-scope-subtype" type="text" placeholder="Sub-topic (optional)" />
+              <button id="teacher-class-scope-add-btn" type="button">Add Scope</button>
+            </div>
+            <div id="teacher-class-scope-list" class="summary"></div>
+            <button id="teacher-class-scope-save-btn" type="button">Save Class Scope</button>
+          </section>
         </section>
 
         <section id="teacher-batch-page" hidden>
-          <div class="top-row">
-            <h3>Batch Assign Group</h3>
+          <div class="top-row teacher-section-header">
+            <h3>Alert</h3>
             <div class="inline-tools">
               <div class="student-nav" aria-label="Teacher page switch">
-                <button id="teacher-dashboard-link-3" type="button" class="mode-btn">Dashboard</button>
-                <button id="teacher-batch-link-2" type="button" class="mode-btn">Batch Assign</button>
-                <button id="teacher-groups-link-3" type="button" class="mode-btn">Group Management</button>
+                <button id="teacher-dashboard-link-3" type="button" class="mode-btn">Student</button>
+                <button id="teacher-batch-link-2" type="button" class="mode-btn">Alert</button>
+                <button id="teacher-groups-link-3" type="button" class="mode-btn">Class and group</button>
               </div>
             </div>
           </div>
@@ -262,23 +308,51 @@
               <button id="teacher-batch-assign-group-btn" type="button">Assign Group to Selected</button>
             </div>
           </section>
+          <section class="subpanel">
+            <h4>Set Class For Selected Students</h4>
+            <div class="inline-tools">
+              <input id="teacher-batch-class-input" type="text" placeholder="Class name (e.g. 4A)" />
+              <button id="teacher-batch-set-class-btn" type="button">Save Class to Selected</button>
+            </div>
+          </section>
           <div id="teacher-batch-table-wrap" class="table-wrap"></div>
         </section>
 
         <section id="teacher-group-page" hidden>
-          <div class="top-row">
-            <h3>Group Management</h3>
+          <div class="top-row teacher-section-header">
+            <h3>Class and group</h3>
             <div class="inline-tools">
               <div class="student-nav" aria-label="Teacher page switch">
-                <button id="teacher-dashboard-link-2" type="button" class="mode-btn">Dashboard</button>
-                <button id="teacher-batch-link-3" type="button" class="mode-btn">Batch Assign</button>
-                <button id="teacher-groups-link-2" type="button" class="mode-btn">Group Management</button>
+                <button id="teacher-dashboard-link-2" type="button" class="mode-btn">Student</button>
+                <button id="teacher-batch-link-3" type="button" class="mode-btn">Alert</button>
+                <button id="teacher-groups-link-2" type="button" class="mode-btn">Class and group</button>
               </div>
             </div>
           </div>
           <p id="teacher-group-message" class="message"></p>
           <section class="subpanel">
-            <h4>Group Management</h4>
+            <div class="inline-tools">
+              <input id="new-class-group-name" type="text" placeholder="New class/group name" />
+              <select id="new-class-group-type">
+                <option value="class">Class</option>
+                <option value="group">Group</option>
+              </select>
+              <button id="add-class-group-btn" type="button">Add</button>
+              <button id="delete-selected-class-group-btn" type="button" class="secondary">Delete</button>
+            </div>
+            <div class="two-col">
+              <div>
+                <h4>Classes</h4>
+                <div id="teacher-class-table-wrap" class="table-wrap"></div>
+              </div>
+              <div>
+                <h4>Groups</h4>
+                <div id="teacher-group-table-wrap" class="table-wrap"></div>
+              </div>
+            </div>
+          </section>
+          <section class="subpanel">
+            <h4>Quick Edit</h4>
             <div class="inline-tools">
               <input id="new-group-name" type="text" placeholder="New group name (e.g. 4A)" />
               <button id="create-group-btn" type="button">Create Group</button>
@@ -317,32 +391,26 @@
         <section id="teacher-student-page" hidden>
           <div class="top-row">
             <h3 id="teacher-student-page-title">Student Profile</h3>
-            <button id="teacher-student-back-btn" type="button" class="secondary">Back to Dashboard</button>
+            <button id="teacher-student-back-btn" type="button" class="secondary">Back</button>
           </div>
           <p id="teacher-student-page-message" class="message"></p>
-          <section class="subpanel">
-            <h4>Stats</h4>
+          <details class="subpanel" id="teacher-profile-stats-wrap" open>
+            <summary>Stats</summary>
             <div id="teacher-student-page-stats" class="summary"></div>
             <div class="subpanel">
+              <h4>Power Pentagon</h4>
+              <div id="teacher-student-radar-wrap" class="radar-wrap"></div>
+              <div id="teacher-student-class-titles" class="summary"></div>
+            </div>
+            <div class="subpanel">
               <h4>Topic x Level Accuracy</h4>
+              <p class="hint">Click a topic to see this student's sub-topic status.</p>
               <div id="teacher-student-topic-lv-matrix" class="table-wrap"></div>
             </div>
-            <div class="subpanel">
-              <h4>Class Assignment</h4>
-              <div class="inline-tools">
-                <input id="teacher-student-class-input" type="text" placeholder="Class name (e.g. 4A)" />
-                <button id="teacher-student-save-class-btn" type="button">Save Class</button>
-              </div>
-            </div>
-            <div class="subpanel">
-              <h4>Assign Groups (Teacher Only)</h4>
-              <div id="teacher-student-group-assign" class="summary"></div>
-              <button id="teacher-student-save-groups-btn" type="button">Save Group Assignment</button>
-            </div>
-          </section>
-          <section class="subpanel">
+          </details>
+          <details class="subpanel" id="teacher-profile-review-wrap">
+            <summary>Review Answered Questions</summary>
             <div class="top-row">
-              <h4>Answered Questions</h4>
               <div class="inline-tools">
                 <select id="teacher-student-filter-lv">
                   <option value="">All Lv</option>
@@ -360,7 +428,7 @@
               </div>
             </div>
             <div id="teacher-student-page-list" class="question-list"></div>
-          </section>
+          </details>
         </section>
       </section>
     </main>
@@ -368,11 +436,45 @@
     <dialog id="wrong-feedback-dialog">
       <form method="dialog" class="subpanel">
         <h4>This answer is wrong</h4>
-        <p>Choose why. If you choose <strong>Careless Mistake</strong>, you must do <strong>1 extra question</strong> at the end today.</p>
+        <p><strong>Forgot</strong>: this type returns to learning mode and you need to build it again.</p>
+        <p><strong>Careless</strong>: you will get one retest; passing it keeps your review schedule, but missing it returns this type to learning mode.</p>
         <div class="inline-tools">
-          <button id="wrong-not-understand-btn" value="not_understand" type="submit">Not Understand</button>
-          <button id="wrong-careless-btn" value="careless" type="submit" class="secondary">Careless Mistake</button>
+          <button id="wrong-not-understand-btn" value="forgot" type="submit">Forgot</button>
+          <button id="wrong-careless-btn" value="careless" type="submit" class="secondary">Careless</button>
         </div>
+      </form>
+    </dialog>
+    <dialog id="status-detail-dialog">
+      <form method="dialog" class="subpanel">
+        <div class="top-row">
+          <h4 id="status-detail-title">Learning Status</h4>
+          <button type="submit" class="secondary">Close</button>
+        </div>
+        <div id="status-detail-body" class="summary"></div>
+      </form>
+    </dialog>
+    <dialog id="alert-wrong-dialog">
+      <form method="dialog" class="subpanel wide-dialog">
+        <div class="top-row">
+          <h4 id="alert-wrong-title">Wrong Answers</h4>
+          <button type="submit" class="secondary">Close</button>
+        </div>
+        <div id="alert-wrong-body" class="question-list"></div>
+      </form>
+    </dialog>
+    <dialog id="class-group-detail-dialog">
+      <form method="dialog" class="subpanel wide-dialog">
+        <div class="top-row">
+          <h4 id="class-group-detail-title">Class / Group</h4>
+          <button type="submit" class="secondary">Close</button>
+        </div>
+        <div class="student-nav">
+          <button type="button" class="mode-btn" data-class-group-tab="stat">Stat</button>
+          <button type="button" class="mode-btn" data-class-group-tab="students">Student list</button>
+          <button type="button" class="mode-btn" data-class-group-tab="scope">Scope</button>
+          <button type="button" class="mode-btn" data-class-group-tab="status">Status</button>
+        </div>
+        <div id="class-group-detail-body"></div>
       </form>
     </dialog>
 
@@ -405,9 +507,9 @@
     <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-    <script src="/vendor/supabase.js?v=20260426g"></script>
-    <script src="/portal.js?v=20260426g"></script>
-    <script src="/login-fallback.js?v=20260426g"></script>
+    <script src="/vendor/supabase.js?v=20260502a"></script>
+    <script src="/portal.js?v=20260503p"></script>
+    <script src="/login-fallback.js?v=20260502b"></script>
   </body>
 </html>
 

@@ -38,6 +38,7 @@
           Paste one line per question: `question_latex || solution_latex || answer_text`
           <textarea id="bulk-input" rows="8" placeholder="x^2+5x+6=0 || x=-2,-3 || -2,-3"></textarea>
         </label>
+        <p class="muted">TikZ blocks are converted to SVG automatically before saving.</p>
         <button id="upload-btn" type="button">Upload Batch</button>
         <p id="upload-message" class="message"></p>
       </section>
@@ -48,6 +49,8 @@
           <label>Keyword<input id="q" type="text" /></label>
           <label>Difficulty<select id="filter_difficulty"><option value="">All</option></select></label>
           <label>Grade<select id="filter_grade"><option value="">All</option></select></label>
+          <label>Topic contains<input id="filter_topic" type="text" /></label>
+          <label>Sub-topic contains<input id="filter_sub_type" type="text" /></label>
         </div>
         <button id="search-btn" type="button">Search</button>
         <p id="search-message" class="message"></p>
