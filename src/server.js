@@ -12,7 +12,9 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || "gemini-1.5-flash";
-const LOCAL_FALLBACK_ENABLED = process.env.LOCAL_FALLBACK_ENABLED !== "false";
+const AI_GENERATION_ENABLED = String(process.env.AI_GENERATION_ENABLED || "false").trim().toLowerCase() === "true";
+const LOCAL_FALLBACK_ENABLED =
+  AI_GENERATION_ENABLED && String(process.env.LOCAL_FALLBACK_ENABLED || "false").trim().toLowerCase() === "true";
 const SCHOOL_EMAIL_DOMAIN = (process.env.SCHOOL_EMAIL_DOMAIN || "").toLowerCase().trim();
 const APP_TIMEZONE = process.env.APP_TIMEZONE || "Asia/Hong_Kong";
 const GOOGLE_CLIENT_ID = String(process.env.GOOGLE_CLIENT_ID || "").trim();
@@ -51,7 +53,7 @@ const STARTER_TOKENS = 120;
 
 const hasCloudConfig = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 const hasAIConfig = Boolean(GEMINI_API_KEY);
-const hasGeneratorConfig = hasAIConfig || LOCAL_FALLBACK_ENABLED;
+const hasGeneratorConfig = AI_GENERATION_ENABLED && (hasAIConfig || LOCAL_FALLBACK_ENABLED);
 const hasClientAuthConfig = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 const isAdminUploadOnlyMode = APP_MODE === "admin_upload_only";
 
@@ -87,7 +89,7 @@ function ensureCloud(req, res, next) {
 function ensureGenerator(req, res, next) {
   if (!hasGeneratorConfig) {
     return res.status(500).json({
-      error: "Generator is not configured. Set GEMINI_API_KEY or enable LOCAL_FALLBACK_ENABLED."
+      error: "AI generation is disabled."
     });
   }
   return next();
@@ -4058,7 +4060,9 @@ app.listen(PORT, () => {
     console.log(`School domain restriction enabled: @${SCHOOL_EMAIL_DOMAIN}`);
   }
   if (!hasAIConfig) {
-    if (LOCAL_FALLBACK_ENABLED) {
+    if (!AI_GENERATION_ENABLED) {
+      console.log("AI generation is disabled.");
+    } else if (LOCAL_FALLBACK_ENABLED) {
       console.log("Gemini key not found. Using local fallback generator.");
     } else {
       console.log("AI generation is disabled until GEMINI_API_KEY is set in .env.");
