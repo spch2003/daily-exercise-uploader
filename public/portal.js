@@ -1899,7 +1899,7 @@ function initializeRoughWorkCanvas(questionId) {
     const under = document.elementFromPoint(event.clientX, event.clientY);
     canvas.style.pointerEvents = prevPointerEvents;
     if (under instanceof Element) {
-      const passThroughTarget = under.closest(".mc-choice:not([disabled]), button[data-submit-id]:not([disabled])");
+      const passThroughTarget = under.closest(".mc-choice:not([disabled]), button[data-submit-id]:not([disabled]), button[data-practice-submit-id]:not([disabled])");
       if (passThroughTarget instanceof HTMLElement) {
         passThroughTarget.click();
         return;
@@ -1922,7 +1922,10 @@ function initializeRoughWorkCanvas(questionId) {
       canvas.style.pointerEvents = "none";
       const under = document.elementFromPoint(event.clientX, event.clientY);
       canvas.style.pointerEvents = prevPointerEvents;
-      const clickable = under instanceof Element ? under.closest(".mc-choice:not([disabled]), button[data-submit-id]:not([disabled])") : null;
+      const clickable =
+        under instanceof Element
+          ? under.closest(".mc-choice:not([disabled]), button[data-submit-id]:not([disabled]), button[data-practice-submit-id]:not([disabled])")
+          : null;
       canvas.style.cursor = clickable ? "pointer" : "crosshair";
       return;
     }
@@ -2429,11 +2432,26 @@ function renderPracticeQuestion() {
   const isMc = String(q.question_type || "").trim() === "MC";
   const answerValue = String(currentPracticeSubmitted?.answer_text || "").trim();
   const mcLabels = detectMcLabels(q.latex_code || "");
+  const roughKey = -Math.abs(Number(q.id));
   practiceQuestionList.innerHTML = `
     <article class="question-card ${state.cardClass}">
       <div class="question-head">
         <div class="question-head-main">
           <strong>Practice question</strong>
+          <div class="inline-tools rough-tools top-rough-tools">
+            <button type="button" class="secondary tool-btn draw-main-btn" id="rough-draw-${roughKey}" title="Draw on screen" aria-label="Draw on screen">Draw On Screen</button>
+            <button type="button" class="secondary tool-btn icon-tool-btn pen-tool-btn" id="rough-pen-${roughKey}" hidden title="Pen colors" aria-label="Pen colors"><span class="tool-art pen-art" aria-hidden="true"></span></button>
+            <div class="color-palette" id="rough-pen-palette-${roughKey}" hidden>
+              ${PEN_COLOR_OPTIONS.map((c) => `<button type="button" class="color-dot" data-pen-color="${escapeHtml(c)}" style="--dot:${escapeHtml(c)}" aria-label="Pen color ${escapeHtml(c)}"></button>`).join("")}
+            </div>
+            <button type="button" class="secondary tool-btn icon-tool-btn highlighter-tool-btn" id="rough-highlighter-${roughKey}" hidden title="Highlight colors" aria-label="Highlight colors"><span class="tool-art highlighter-art" aria-hidden="true"></span></button>
+            <div class="color-palette" id="rough-highlighter-palette-${roughKey}" hidden>
+              ${HIGHLIGHTER_COLOR_OPTIONS.map((c) => `<button type="button" class="color-dot" data-highlighter-color="${escapeHtml(c)}" style="--dot:${escapeHtml(c)}" aria-label="Highlighter color ${escapeHtml(c)}"></button>`).join("")}
+            </div>
+            <button type="button" class="secondary tool-btn icon-tool-btn eraser-tool-btn" id="rough-eraser-${roughKey}" hidden title="Eraser" aria-label="Eraser"><span class="tool-art eraser-art" aria-hidden="true"></span></button>
+            <button type="button" class="secondary tool-btn icon-tool-btn undo-tool-btn" id="rough-undo-${roughKey}" hidden title="Undo" aria-label="Undo">↶</button>
+            <button type="button" class="secondary tool-btn icon-tool-btn clear-tool-btn" id="rough-clear-${roughKey}" hidden title="Clear drawing" aria-label="Clear drawing">✕</button>
+          </div>
         </div>
         <div class="question-head-right">
           <div class="question-labels question-head-labels">
@@ -2486,12 +2504,15 @@ function renderPracticeQuestion() {
             : ""
         }
       </div>
+      <button type="button" class="secondary tool-btn rough-float-toggle icon-tool-btn" id="rough-float-${roughKey}" hidden title="Stop drawing (Esc)" aria-label="Stop drawing">✕</button>
+      <canvas id="rough-canvas-${roughKey}" class="rough-screen-canvas" aria-label="Rough work drawing area"></canvas>
     </article>
   `;
   const body = document.getElementById(`practice-question-body-${q.id}`);
   if (body) renderQuestionBody(body, q.latex_code || "");
   const solutionBody = document.getElementById(`practice-solution-body-${q.id}`);
   if (solutionBody) renderQuestionBody(solutionBody, q.solution_latex || "", { multiline: true });
+  initializeRoughWorkCanvas(roughKey);
   wireMcButtons(practiceQuestionList);
   practiceQuestionList.querySelectorAll(".mc-options").forEach((group) => {
     setSelectedMcAnswer(group, group.getAttribute("data-selected") || "");
@@ -2514,6 +2535,8 @@ async function submitPracticeAnswer() {
     return;
   }
   const elapsedSeconds = practiceQuestionStartTime ? Math.max(1, Math.round((Date.now() - practiceQuestionStartTime) / 1000)) : null;
+  const roughKey = -Math.abs(questionId);
+  disableDrawModeForQuestion(roughKey);
   const result = await api("/api/student/practice/submit", {
     method: "POST",
     body: JSON.stringify({ question_id: questionId, answer_text: answer, time_spent_seconds: elapsedSeconds })
@@ -2534,6 +2557,7 @@ async function submitPracticeAnswer() {
     `${result?.is_correct === true ? "Correct." : "Submitted."}${reward > 0 ? ` +${reward} diamonds` : ""} Practice does not change your learning status or daily questions.`,
     result?.is_correct === true ? "success" : "error"
   );
+  clearDrawStateForQuestion(roughKey);
   renderPracticeQuestion();
   if (practiceNextBtn) practiceNextBtn.hidden = false;
   await loadStudentStats();
