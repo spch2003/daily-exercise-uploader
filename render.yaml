@@ -1,0 +1,31 @@
+services:
+  - type: web
+    name: daily-exercise-portal
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    autoDeploy: true
+    envVars:
+      - key: APP_MODE
+        value: student_portal
+      - key: APP_TIMEZONE
+        value: Asia/Hong_Kong
+      - key: DISABLE_SIGNUP
+        value: true
+      - key: AI_GENERATION_ENABLED
+        value: false
+      - key: LOCAL_FALLBACK_ENABLED
+        value: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: SCHOOL_EMAIL_DOMAIN
+        sync: false

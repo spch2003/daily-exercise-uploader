@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20260509d" />
   </head>
   <body>
     <main class="app-shell">
@@ -73,10 +73,12 @@
 
       <section class="panel">
         <h2>Search & Filter</h2>
-        <div class="grid">
+        <div class="grid search-filter-grid">
           <label>
-            Search text
-            <input id="search_q" type="text" placeholder="LaTeX, topic, or sub-type" />
+            Grade filter
+            <select id="filter_grade">
+              <option value="">All</option>
+            </select>
           </label>
           <label>
             Difficulty filter
@@ -85,22 +87,22 @@
             </select>
           </label>
           <label>
-            Grade filter
-            <select id="filter_grade">
+            Topic
+            <select id="filter_topic">
               <option value="">All</option>
             </select>
           </label>
           <label>
-            Topic contains
-            <input id="filter_topic" type="text" list="filter-topic-options" placeholder="e.g. Calculus" />
+            Sub-topic
+            <select id="filter_sub_type">
+              <option value="">All</option>
+            </select>
           </label>
           <label>
-            Sub-topic contains
-            <input id="filter_sub_type" type="text" list="filter-subtopic-options" placeholder="e.g. Quadratic Equation" />
+            Search text
+            <input id="search_q" type="text" placeholder="LaTeX, topic, or sub-type" />
           </label>
         </div>
-        <datalist id="filter-topic-options"></datalist>
-        <datalist id="filter-subtopic-options"></datalist>
         <div class="button-row">
           <button id="search-btn" type="button">Search</button>
           <button id="hide-results-btn" type="button" class="secondary-btn">Hide Results</button>
@@ -147,7 +149,7 @@
     </main>
     <button id="go-top-btn" class="go-top-btn" type="button" aria-label="Go to top">Top</button>
 
-    <script src="/app.js?v=20260502a" defer></script>
+    <script src="/app.js?v=20260509d" defer></script>
     <script>
       window.MathJax = {
         tex: {

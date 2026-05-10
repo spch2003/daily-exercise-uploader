@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/portal.css?v=20260503g" />
+    <link rel="stylesheet" href="/portal.css?v=20260510m" />
   </head>
   <body>
     <main class="container">
@@ -17,10 +17,10 @@
 
       <section id="auth-card" class="card">
         <h2>Sign In</h2>
-        <p id="school-note" class="hint"></p>
+        <p id="school-note" class="hint" hidden></p>
 
         <div class="auth-grid">
-          <form id="signup-form" class="panel-form" action="javascript:void(0);">
+          <form id="signup-form" class="panel-form" action="javascript:void(0);" hidden>
             <h3>Create Account</h3>
             <label>
               Full name
@@ -42,7 +42,6 @@
           </form>
 
           <form id="login-form" class="panel-form" action="javascript:void(0);">
-            <h3>Log In</h3>
             <label>
               School email
               <input id="login-email" type="email" required />
@@ -52,7 +51,6 @@
               <input id="login-password" type="password" required />
             </label>
             <button type="submit">Log in</button>
-            <p class="hint auth-verify-note">For security, login email must match your browser Google account.</p>
           </form>
         </div>
 
@@ -71,6 +69,7 @@
             </div>
           </div>
           <div class="inline-tools">
+            <button id="open-practice-mode-btn" type="button" class="mission-btn student-header-action" hidden>Practice mode</button>
             <button id="profile-daily-mission-btn" type="button" class="mission-btn" hidden>
               Daily mission
               <span id="profile-daily-mission-alert" class="mission-alert">!</span>
@@ -79,7 +78,7 @@
               id="top-token-badge"
               class="diamond-badge"
               hidden
-              title="Diamond rules: Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily streak bonus (finish >=5/day): 3d +5, 7d +10, 14d +20, 21d +40."
+              title="Diamond rules: Start with 0. Complete the initial placement test +100. Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily streak bonus (finish >=5/day): 3d +5, 7d +10, 14d +20, 21d +40."
             >
               💎 0
             </div>
@@ -88,18 +87,62 @@
             <button id="logout-btn" class="secondary icon-top-btn" type="button">🚪</button>
           </div>
         </div>
+        <section id="admin-view" hidden>
+          <div class="top-row">
+            <h3>Admin - Batch Account Creation</h3>
+          </div>
+          <p class="hint">Paste one account per line: role, email, password, full name, class. Class is used for students only.</p>
+          <textarea id="admin-account-batch-input" rows="10" placeholder="student, student1@school.edu, TempPass123, Chan Tai Man, 4A&#10;teacher, teacher1@school.edu, TempPass123, Mr Wong,"></textarea>
+          <div class="inline-tools">
+            <button id="admin-create-accounts-btn" type="button">Create accounts</button>
+          </div>
+          <p id="admin-message" class="message"></p>
+          <div id="admin-account-results" class="table-wrap"></div>
+          <hr />
+          <div class="top-row">
+            <h3>View and Delete Accounts</h3>
+            <button id="admin-load-accounts-btn" type="button" class="secondary">Refresh</button>
+          </div>
+          <div class="inline-tools">
+            <select id="admin-batch-account-role">
+              <option value="">Role</option>
+              <option value="student">student</option>
+              <option value="teacher">teacher</option>
+              <option value="admin">admin</option>
+            </select>
+            <input id="admin-batch-account-grade" type="text" placeholder="Grade" />
+            <input id="admin-batch-account-class" type="text" placeholder="Class" />
+            <input id="admin-batch-account-password" type="password" placeholder="New password (optional)" />
+            <button id="admin-batch-update-accounts-btn" type="button">Batch update selected</button>
+          </div>
+          <div id="admin-account-list-wrap" class="table-wrap"></div>
+          <p id="admin-account-list-message" class="message"></p>
+          <hr />
+          <div class="top-row">
+            <h3>Class Teacher Access</h3>
+            <button id="admin-load-class-teachers-btn" type="button" class="secondary">Refresh</button>
+          </div>
+          <p class="hint">Assign each class to the teacher who should see and manage that class.</p>
+          <div id="admin-class-teacher-wrap" class="table-wrap"></div>
+          <div class="inline-tools">
+            <button id="admin-save-class-teachers-btn" type="button">Save class teachers</button>
+          </div>
+          <p id="admin-class-teacher-message" class="message"></p>
+        </section>
+
 <section id="student-view" hidden>
           <p id="student-message" class="message"></p>
 
           <section id="student-assessment-panel" class="subpanel" hidden>
             <div class="top-row">
               <h3>Initial Placement Test</h3>
-              <span class="stat">12 questions</span>
+              <span class="stat">Up to 12 questions</span>
             </div>
             <div class="placement-instruction">
               Complete the placement test first. Daily questions will open after it is submitted.
               Please answer carefully so the system can choose your starting level and review plan.
               If you do not know a question, do not guess; press "Don't know" so the level estimate is more accurate.
+              You will receive 100 diamonds after submitting the placement test.
             </div>
             <div id="assessment-list" class="question-list"></div>
             <div class="inline-tools">
@@ -108,7 +151,7 @@
             <p id="assessment-message" class="message"></p>
           </section>
 
-          <section id="student-daily-panel" class="floating-daily-overlay">
+          <section id="student-daily-panel" class="floating-daily-overlay" hidden>
             <button id="close-daily-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close daily">✕</button>
             <div class="inline-tools">
               <button id="daily-prev-btn" type="button" class="secondary">Previous</button>
@@ -121,25 +164,31 @@
           </section>
 
           <section id="student-profile-panel" class="subpanel" hidden>
-
-            <details class="subpanel" id="profile-stats-wrap">
-              <summary>Stats</summary>
+            <div class="profile-tab-strip" role="tablist" aria-label="Student profile tabs">
+              <button id="profile-tab-class-performance" class="profile-tab active" type="button" data-profile-tab="class-performance" role="tab" aria-selected="true">Class performance</button>
+              <button id="profile-tab-topic-level" class="profile-tab" type="button" data-profile-tab="topic-level" role="tab" aria-selected="false">By topic / Level analysis</button>
+              <button id="profile-tab-review" class="profile-tab" type="button" data-profile-tab="review" role="tab" aria-selected="false">Review answered questions</button>
+            </div>
+            <section id="profile-panel-class-performance" class="profile-tab-panel active" data-profile-panel="class-performance" role="tabpanel">
               <div id="student-stats" class="summary"></div>
-              <div class="subpanel">
-                <h4>Power Pentagon</h4>
+              <div class="power-pentagon-panel">
                 <div id="student-radar-wrap" class="radar-wrap"></div>
                 <div id="student-class-titles" class="summary"></div>
               </div>
-              <div class="subpanel">
-                <h4>Topic x Level Accuracy</h4>
-                <p class="hint">Click a topic to see sub-topic learning status.</p>
-                <div id="student-topic-lv-matrix" class="table-wrap"></div>
+            </section>
+            <section id="profile-panel-topic-level" class="profile-tab-panel" data-profile-panel="topic-level" role="tabpanel" hidden>
+              <h4>Topic x Level Accuracy</h4>
+              <p class="hint">Click a topic to see sub-topic learning status.</p>
+              <div id="student-topic-lv-matrix" class="table-wrap"></div>
+              <div class="profile-section-block">
+                <h4>Learning Status</h4>
+                <div id="student-learning-status-table" class="table-wrap"></div>
               </div>
-            </details>
-            <details class="subpanel" id="profile-review-wrap">
-              <summary>Review Answered Questions</summary>
+            </section>
+            <section id="profile-panel-review" class="profile-tab-panel" data-profile-panel="review" role="tabpanel" hidden>
               <div class="top-row">
                 <div class="inline-tools">
+                  <button id="student-review-back-btn" type="button" class="secondary" hidden>Back</button>
                   <select id="review-filter-lv">
                     <option value="">All Lv</option>
                   </select>
@@ -165,7 +214,32 @@
                 </div>
               </div>
               <div id="student-review-list" class="question-list"></div>
-            </details>
+            </section>
+          </section>
+
+          <section id="student-practice-panel" class="subpanel" hidden>
+            <div class="top-row">
+              <div>
+                <h3>Practice mode</h3>
+                <p class="hint">Choose any scope you want, or leave everything as All for random practice. These questions can earn diamonds and count in your Power Pentagon, but they do not change your daily 5 questions or learning status.</p>
+              </div>
+              <button id="practice-back-profile-btn" type="button" class="secondary">Back to profile</button>
+            </div>
+            <div class="practice-picker inline-tools">
+              <select id="practice-lv-select">
+                <option value="">All Lv</option>
+              </select>
+              <select id="practice-topic-select">
+                <option value="">All Topics</option>
+              </select>
+              <select id="practice-subtopic-select">
+                <option value="">All Sub-topics</option>
+              </select>
+              <button id="practice-start-btn" type="button">Start practice</button>
+              <button id="practice-next-btn" type="button" class="secondary" hidden>Next question</button>
+            </div>
+            <p id="practice-message" class="message"></p>
+            <div id="practice-question-list" class="question-list"></div>
           </section>
 
           <section id="student-today-review-page" class="subpanel" hidden>
@@ -262,27 +336,6 @@
             </div>
             <div id="teacher-status-table" class="table-wrap"></div>
           </section>
-          <section id="teacher-class-scope-tab-content" class="subpanel" hidden>
-            <h4>Class Scope (Question Range)</h4>
-            <p class="hint">A student's questions must be inside the intersection of the class scope and every group scope they belong to.</p>
-            <div class="inline-tools">
-              <input id="teacher-class-scope-name" type="text" placeholder="Class name (e.g. 4A)" />
-              <button id="teacher-class-scope-load-btn" type="button" class="secondary">Load Class Scope</button>
-            </div>
-            <div class="inline-tools">
-              <select id="teacher-class-scope-min-difficulty">
-                <option value="">Min Lv</option>
-              </select>
-              <select id="teacher-class-scope-max-difficulty">
-                <option value="">Max Lv</option>
-              </select>
-              <select id="teacher-class-scope-topics" multiple size="6" aria-label="Select class scope topics"></select>
-              <input id="teacher-class-scope-subtype" type="text" placeholder="Sub-topic (optional)" />
-              <button id="teacher-class-scope-add-btn" type="button">Add Scope</button>
-            </div>
-            <div id="teacher-class-scope-list" class="summary"></div>
-            <button id="teacher-class-scope-save-btn" type="button">Save Class Scope</button>
-          </section>
         </section>
 
         <section id="teacher-batch-page" hidden>
@@ -351,41 +404,6 @@
               </div>
             </div>
           </section>
-          <section class="subpanel">
-            <h4>Quick Edit</h4>
-            <div class="inline-tools">
-              <input id="new-group-name" type="text" placeholder="New group name (e.g. 4A)" />
-              <button id="create-group-btn" type="button">Create Group</button>
-            </div>
-            <div class="inline-tools">
-              <select id="teacher-group-select">
-                <option value="">Select a group</option>
-              </select>
-              <button id="load-group-stats-btn" type="button">Load Group Stats</button>
-              <button id="teacher-group-select-all-btn" type="button" class="secondary">Select All Members</button>
-              <button id="teacher-group-clear-selected-btn" type="button" class="secondary">Clear Selection</button>
-              <button id="teacher-group-remove-selected-btn" type="button">Remove Selected</button>
-            </div>
-            <div id="teacher-group-stats" class="summary"></div>
-            <div class="subpanel">
-              <h4>Group Scope (Question Range)</h4>
-              <p class="hint">Each rule means: this topic is allowed from Min Lv to Max Lv. Topics not listed are blocked.</p>
-              <div class="inline-tools">
-                <select id="teacher-scope-min-difficulty">
-                  <option value="">Min Lv</option>
-                </select>
-                <select id="teacher-scope-max-difficulty">
-                  <option value="">Max Lv</option>
-                </select>
-                <select id="teacher-scope-topics" multiple size="6" aria-label="Select topics"></select>
-                <input id="teacher-scope-subtype" type="text" placeholder="Sub-topic (optional, apply to selected topics)" />
-                <button id="teacher-scope-add-btn" type="button">Add Scope</button>
-              </div>
-              <div id="teacher-scope-list" class="summary"></div>
-              <button id="teacher-scope-save-btn" type="button">Save Group Scope</button>
-            </div>
-            <div id="teacher-group-students" class="question-list"></div>
-          </section>
         </section>
 
         <section id="teacher-student-page" hidden>
@@ -397,8 +415,7 @@
           <details class="subpanel" id="teacher-profile-stats-wrap" open>
             <summary>Stats</summary>
             <div id="teacher-student-page-stats" class="summary"></div>
-            <div class="subpanel">
-              <h4>Power Pentagon</h4>
+            <div class="subpanel power-pentagon-panel">
               <div id="teacher-student-radar-wrap" class="radar-wrap"></div>
               <div id="teacher-student-class-titles" class="summary"></div>
             </div>
@@ -457,7 +474,10 @@
       <form method="dialog" class="subpanel wide-dialog">
         <div class="top-row">
           <h4 id="alert-wrong-title">Wrong Answers</h4>
-          <button type="submit" class="secondary">Close</button>
+          <div class="inline-tools">
+            <button id="alert-wrong-back-btn" type="button" class="secondary" hidden>Back</button>
+            <button type="submit" class="secondary">Close</button>
+          </div>
         </div>
         <div id="alert-wrong-body" class="question-list"></div>
       </form>
@@ -507,8 +527,9 @@
     <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
     <script src="/vendor/supabase.js?v=20260502a"></script>
-    <script src="/portal.js?v=20260503p"></script>
+    <script src="/portal.js?v=20260510v"></script>
     <script src="/login-fallback.js?v=20260502b"></script>
   </body>
 </html>

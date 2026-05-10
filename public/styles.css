@@ -135,6 +135,11 @@ button:hover {
   margin: 0.8rem 0;
 }
 
+.search-filter-grid {
+  grid-template-columns: minmax(120px, 0.8fr) minmax(120px, 0.8fr) minmax(210px, 1.2fr) minmax(230px, 1.35fr) minmax(210px, 1.2fr);
+  align-items: end;
+}
+
 .list-header {
   display: flex;
   justify-content: space-between;

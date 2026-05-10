@@ -13,8 +13,8 @@ const filterDifficulty = document.getElementById("filter_difficulty");
 const filterGrade = document.getElementById("filter_grade");
 const filterTopic = document.getElementById("filter_topic");
 const filterSubType = document.getElementById("filter_sub_type");
-const filterTopicOptions = document.getElementById("filter-topic-options");
-const filterSubtopicOptions = document.getElementById("filter-subtopic-options");
+const filterTopicOptions = null;
+const filterSubtopicOptions = null;
 const searchQ = document.getElementById("search_q");
 const searchBtn = document.getElementById("search-btn");
 const hideResultsBtn = document.getElementById("hide-results-btn");
@@ -49,6 +49,8 @@ const selectedProblemIds = new Set();
 let difficultyValues = [];
 let gradeValues = [];
 let questionTypeValues = [];
+let allProblemsForFilters = [];
+let filterOptionsRequestId = 0;
 const knownTopics = new Set();
 const knownSubtopics = new Set();
 const topicToSubtopics = new Map();
@@ -118,8 +120,26 @@ function addOptions(select, values) {
   });
 }
 
+function sortedValues(values) {
+  return [...new Set([...values].map((value) => String(value || "").trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "en", { numeric: true, sensitivity: "base" })
+  );
+}
+
+function renderSelectOptions(select, values, allLabel = "All", options = {}) {
+  if (!select) return;
+  const current = String(select.value || "").trim();
+  const optionValues = sortedValues(values);
+  select.innerHTML = `<option value="">${escapeHtml(allLabel)}</option>${optionValues.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("")}`;
+  if (options.clearValue) {
+    select.value = "";
+    return;
+  }
+  select.value = current && optionValues.includes(current) ? current : "";
+}
+
 function renderDatalist(datalistEl, values) {
-  const sorted = [...values].sort((a, b) => a.localeCompare(b));
+  const sorted = sortedValues(values);
   datalistEl.innerHTML = sorted.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
 }
 
@@ -162,8 +182,9 @@ function rebuildAutocompleteIndex(problems) {
   knownTopics.clear();
   knownSubtopics.clear();
   topicToSubtopics.clear();
+  allProblemsForFilters = Array.isArray(problems) ? problems : [];
 
-  for (const p of problems) {
+  for (const p of allProblemsForFilters) {
     const topic = String(p.topic || "").trim();
     const sub = String(p.sub_type || "").trim();
     if (topic) knownTopics.add(topic);
@@ -173,8 +194,7 @@ function rebuildAutocompleteIndex(problems) {
 
   renderDatalist(topicOptions, knownTopics);
   updateSubtopicDatalistForTopic(topicInput.value.trim());
-  renderDatalist(filterTopicOptions, knownTopics);
-  updateFilterSubtopicDatalistForTopic(filterTopic.value.trim());
+  updateSearchFilterOptions();
   updateRelabelAutocomplete();
 }
 
@@ -190,10 +210,96 @@ function tryPairAutofill() {
 function updateFilterSubtopicDatalistForTopic(topicValue) {
   const topicKey = findTopicKeyInsensitive(topicValue);
   if (topicKey && topicToSubtopics.has(topicKey)) {
-    renderDatalist(filterSubtopicOptions, topicToSubtopics.get(topicKey));
+    renderSelectOptions(filterSubType, topicToSubtopics.get(topicKey), "All");
     return;
   }
-  renderDatalist(filterSubtopicOptions, knownSubtopics);
+  renderSelectOptions(filterSubType, knownSubtopics, "All");
+}
+
+function problemMatchesSearchFilters(problem, omitField = "") {
+  const difficulty = String(problem?.difficulty || "").trim();
+  const grade = String(problem?.grade || "").trim();
+  const topic = String(problem?.topic || "").trim();
+  const subType = String(problem?.sub_type || "").trim();
+  const latex = String(problem?.latex_code || "").trim();
+  const selectedDifficulty = String(filterDifficulty?.value || "").trim();
+  const selectedGrade = String(filterGrade?.value || "").trim();
+  const selectedTopic = String(filterTopic?.value || "").trim().toLowerCase();
+  const selectedSubType = String(filterSubType?.value || "").trim().toLowerCase();
+  const selectedSearch = String(searchQ?.value || "").trim().toLowerCase();
+
+  if (omitField !== "difficulty" && selectedDifficulty && difficulty !== selectedDifficulty) return false;
+  if (omitField !== "grade" && selectedGrade && grade !== selectedGrade) return false;
+  if (omitField !== "topic" && selectedTopic && !topic.toLowerCase().includes(selectedTopic)) return false;
+  if (omitField !== "sub_type" && selectedSubType && !subType.toLowerCase().includes(selectedSubType)) return false;
+  if (
+    omitField !== "q" &&
+    selectedSearch &&
+    ![latex, topic, subType].some((value) => String(value || "").toLowerCase().includes(selectedSearch))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function valuesForSearchFilter(field) {
+  return sortedValues(
+    allProblemsForFilters
+      .filter((problem) => problemMatchesSearchFilters(problem, field))
+      .map((problem) => problem?.[field])
+  );
+}
+
+function searchFilterParams() {
+  const params = new URLSearchParams();
+  if (filterDifficulty.value) params.set("difficulty", filterDifficulty.value);
+  if (filterGrade.value) params.set("grade", filterGrade.value);
+  if (filterTopic.value) params.set("topic", filterTopic.value);
+  if (filterSubType.value) params.set("sub_type", filterSubType.value);
+  if (searchQ.value.trim()) params.set("q", searchQ.value.trim());
+  return params;
+}
+
+async function fetchSearchFilterOptions() {
+  const params = searchFilterParams();
+  const query = params.toString() ? `?${params.toString()}` : "";
+  return fetchJsonWithAdminKey(`/api/problems/filter-options${query}`);
+}
+
+async function updateSearchFilterOptions(changedField = "") {
+  const clearTopic = changedField === "grade" || changedField === "difficulty";
+  const clearSubType = clearTopic || changedField === "topic";
+  if (clearTopic) filterTopic.value = "";
+  if (clearSubType) filterSubType.value = "";
+
+  const requestId = ++filterOptionsRequestId;
+  let options = null;
+  try {
+    options = await fetchSearchFilterOptions();
+  } catch (_error) {
+    if (!allProblemsForFilters.length) return;
+    options = {
+      grade: valuesForSearchFilter("grade"),
+      difficulty: valuesForSearchFilter("difficulty"),
+      topic: valuesForSearchFilter("topic"),
+      sub_type: valuesForSearchFilter("sub_type")
+    };
+  }
+  if (requestId !== filterOptionsRequestId) return;
+
+  if (changedField !== "grade") renderSelectOptions(filterGrade, options.grade || [], "All");
+  if (changedField !== "difficulty") renderSelectOptions(filterDifficulty, options.difficulty || [], "All");
+  renderSelectOptions(filterTopic, options.topic || [], "All", { clearValue: clearTopic });
+  renderSelectOptions(filterSubType, options.sub_type || [], "All", { clearValue: clearSubType });
+
+  if (filterTopic.value.trim()) {
+    const topicExists = (options.topic || []).some((topic) => topic.toLowerCase() === filterTopic.value.trim().toLowerCase());
+    if (!topicExists && changedField !== "topic") filterTopic.value = "";
+  }
+  if (filterSubType.value.trim()) {
+    const subTypeExists = (options.sub_type || []).some((subType) => subType.toLowerCase() === filterSubType.value.trim().toLowerCase());
+    if (!subTypeExists && changedField !== "sub_type") filterSubType.value = "";
+  }
 }
 
 function trySearchPairAutofill() {
@@ -282,7 +388,14 @@ function buildKrokiTikzUrl(tikzSource) {
     ? source
     : [
         "\\documentclass[tikz,border=2pt]{standalone}",
+        "\\usepackage[utf8]{inputenc}",
         "\\usepackage{amsmath}",
+        "\\usepackage{amssymb}",
+        "\\DeclareUnicodeCharacter{2713}{\\ensuremath{\\checkmark}}",
+        "\\DeclareUnicodeCharacter{2714}{\\ensuremath{\\checkmark}}",
+        "\\DeclareUnicodeCharacter{2717}{\\ensuremath{\\times}}",
+        "\\DeclareUnicodeCharacter{2718}{\\ensuremath{\\times}}",
+        "\\DeclareUnicodeCharacter{00D7}{\\ensuremath{\\times}}",
         "\\usepackage{tikz}",
         "\\usetikzlibrary{angles,quotes,calc,arrows.meta,positioning,decorations.pathreplacing}",
         "\\begin{document}",
@@ -336,6 +449,20 @@ function sanitizeTikzBlock(block) {
   s = s.replace(
     /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{\$([^$]+)\$\}\s*;/g,
     (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
+  );
+  // TikZ/LaTeX does not accept Unicode tick/cross marks directly.
+  s = s.replace(
+    /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{([^{}]*)\}\s*;/g,
+    (_m, opt = "", coord, label) => {
+      const normalized = String(label || "")
+        .trim()
+        .replace(/[✓✔]/g, "\\checkmark")
+        .replace(/[✗✘×]/g, "\\times");
+      if (/^\\(?:checkmark|times)$/.test(normalized)) {
+        return `\\node${opt} at (${coord}) {$${normalized}$};`;
+      }
+      return `\\node${opt} at (${coord}) {${label}};`;
+    }
   );
   return s;
 }
@@ -1298,7 +1425,7 @@ subTypeInput.addEventListener("blur", () => {
   tryPairAutofill();
 });
 filterTopic.addEventListener("input", () => {
-  updateFilterSubtopicDatalistForTopic(filterTopic.value.trim());
+  updateSearchFilterOptions("topic");
   const typedSub = filterSubType.value.trim();
   const topicKey = findTopicKeyInsensitive(filterTopic.value.trim());
   if (typedSub && topicKey && topicToSubtopics.has(topicKey)) {
@@ -1310,7 +1437,7 @@ filterTopic.addEventListener("input", () => {
   updateRelabelAutocomplete();
 });
 filterTopic.addEventListener("change", () => {
-  updateFilterSubtopicDatalistForTopic(filterTopic.value.trim());
+  updateSearchFilterOptions("topic");
   const typedSub = filterSubType.value.trim();
   const topicKey = findTopicKeyInsensitive(filterTopic.value.trim());
   if (typedSub && topicKey && topicToSubtopics.has(topicKey)) {
@@ -1321,6 +1448,26 @@ filterTopic.addEventListener("change", () => {
   }
   trySearchPairAutofill();
   updateRelabelAutocomplete();
+});
+filterDifficulty.addEventListener("change", () => {
+  updateSearchFilterOptions("difficulty");
+  updateRelabelAutocomplete();
+});
+filterGrade.addEventListener("change", () => {
+  updateSearchFilterOptions("grade");
+  updateRelabelAutocomplete();
+});
+filterSubType.addEventListener("input", () => {
+  updateSearchFilterOptions("sub_type");
+  updateRelabelAutocomplete();
+});
+filterSubType.addEventListener("change", () => {
+  updateSearchFilterOptions("sub_type");
+  trySearchPairAutofill();
+  updateRelabelAutocomplete();
+});
+searchQ.addEventListener("input", () => {
+  updateSearchFilterOptions("q");
 });
 filterSubType.addEventListener("blur", () => {
   trySearchPairAutofill();

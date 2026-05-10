@@ -44,6 +44,36 @@ npm start
 
 Open: [http://localhost:3000](http://localhost:3000)
 
+## 4. Deploy Student Portal on Render
+
+This repo includes `render.yaml` for a Render web service named `daily-exercise-portal`.
+
+Use these settings if you create the service manually:
+
+```text
+Build Command: npm install
+Start Command: npm start
+```
+
+Set these Render environment variables:
+
+```env
+APP_MODE=student_portal
+APP_TIMEZONE=Asia/Hong_Kong
+DISABLE_SIGNUP=true
+SUPABASE_URL=...
+SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+ADMIN_EMAILS=admin@example.com
+GOOGLE_CLIENT_ID=...
+SCHOOL_EMAIL_DOMAIN=
+```
+
+Notes:
+- `APP_MODE=student_portal` makes the Render root URL open `/portal.html`, the student/teacher/admin login portal.
+- Do not use `APP_MODE=admin_upload_only` for the student portal service. That mode is for the question-bank uploader only and hides the portal.
+- If you also want a separate batch uploader deployment, create another Render service from the same repo with `APP_MODE=admin_upload_only`.
+
 ## Main endpoints
 
 - `GET /api/client-config`

@@ -27,12 +27,30 @@ const topTokenBadge = document.getElementById("top-token-badge");
 const topShopBtn = document.getElementById("top-shop-btn");
 
 const studentView = document.getElementById("student-view");
+const adminView = document.getElementById("admin-view");
+const adminAccountBatchInput = document.getElementById("admin-account-batch-input");
+const adminCreateAccountsBtn = document.getElementById("admin-create-accounts-btn");
+const adminMessage = document.getElementById("admin-message");
+const adminAccountResults = document.getElementById("admin-account-results");
+const adminLoadAccountsBtn = document.getElementById("admin-load-accounts-btn");
+const adminAccountListWrap = document.getElementById("admin-account-list-wrap");
+const adminAccountListMessage = document.getElementById("admin-account-list-message");
+const adminBatchAccountRole = document.getElementById("admin-batch-account-role");
+const adminBatchAccountGrade = document.getElementById("admin-batch-account-grade");
+const adminBatchAccountClass = document.getElementById("admin-batch-account-class");
+const adminBatchAccountPassword = document.getElementById("admin-batch-account-password");
+const adminBatchUpdateAccountsBtn = document.getElementById("admin-batch-update-accounts-btn");
+const adminLoadClassTeachersBtn = document.getElementById("admin-load-class-teachers-btn");
+const adminSaveClassTeachersBtn = document.getElementById("admin-save-class-teachers-btn");
+const adminClassTeacherWrap = document.getElementById("admin-class-teacher-wrap");
+const adminClassTeacherMessage = document.getElementById("admin-class-teacher-message");
 const studentDailyPanel = document.getElementById("student-daily-panel");
 const studentAssessmentPanel = document.getElementById("student-assessment-panel");
 const assessmentList = document.getElementById("assessment-list");
 const assessmentSubmitBtn = document.getElementById("assessment-submit-btn");
 const assessmentMessage = document.getElementById("assessment-message");
 const studentProfilePanel = document.getElementById("student-profile-panel");
+const studentPracticePanel = document.getElementById("student-practice-panel");
 const studentTodayReviewPage = document.getElementById("student-today-review-page");
 const studentAvatarShopPage = document.getElementById("student-avatar-shop-page");
 const shopPreviewCharacters = document.getElementById("shop-preview-characters");
@@ -81,8 +99,19 @@ const reviewFilterDate = document.getElementById("review-filter-date");
 const reviewSortField = document.getElementById("review-sort-field");
 const reviewSortOrder = document.getElementById("review-sort-order");
 const reviewLoadBtn = document.getElementById("review-load-btn");
+const studentReviewBackBtn = document.getElementById("student-review-back-btn");
 const studentReviewList = document.getElementById("student-review-list");
 const studentTopicLvMatrix = document.getElementById("student-topic-lv-matrix");
+const studentLearningStatusTable = document.getElementById("student-learning-status-table");
+const openPracticeModeBtn = document.getElementById("open-practice-mode-btn");
+const practiceBackProfileBtn = document.getElementById("practice-back-profile-btn");
+const practiceLvSelect = document.getElementById("practice-lv-select");
+const practiceTopicSelect = document.getElementById("practice-topic-select");
+const practiceSubtopicSelect = document.getElementById("practice-subtopic-select");
+const practiceStartBtn = document.getElementById("practice-start-btn");
+const practiceNextBtn = document.getElementById("practice-next-btn");
+const practiceMessage = document.getElementById("practice-message");
+const practiceQuestionList = document.getElementById("practice-question-list");
 const topChangePwBtn = document.getElementById("top-change-pw-btn");
 const topChangePwPanel = document.getElementById("top-change-pw-panel");
 const changePwCurrent = document.getElementById("change-pw-current");
@@ -167,6 +196,7 @@ const statusDetailBody = document.getElementById("status-detail-body");
 const alertWrongDialog = document.getElementById("alert-wrong-dialog");
 const alertWrongTitle = document.getElementById("alert-wrong-title");
 const alertWrongBody = document.getElementById("alert-wrong-body");
+const alertWrongBackBtn = document.getElementById("alert-wrong-back-btn");
 const classGroupDetailDialog = document.getElementById("class-group-detail-dialog");
 const classGroupDetailTitle = document.getElementById("class-group-detail-title");
 const classGroupDetailBody = document.getElementById("class-group-detail-body");
@@ -200,8 +230,9 @@ let verifiedBrowserEmail = "";
 const STUDENT_THEME_KEY = "student_theme_mode";
 const STUDENT_PAGE_KEY = "student_page_tab";
 const TEACHER_PAGE_KEY = "teacher_page_tab";
+const TEACHER_PROFILE_STUDENT_KEY = "teacher_profile_student_id";
 const STUDENT_FORCE_PROFILE_ONCE_KEY = "student_force_profile_once";
-const STUDENT_ASSESSMENT_CACHE_PREFIX = "student_initial_assessment_v2_";
+const STUDENT_ASSESSMENT_CACHE_PREFIX = "student_initial_assessment_v12_";
 const questionStartTimes = new Map();
 let teacherStudentViewData = null;
 let difficultyOrder = ["lv2", "lv3", "lv4", "lv5", "lv5*", "lv5**"];
@@ -211,6 +242,7 @@ let currentGroupMemberIds = [];
 const selectedGroupMemberIds = new Set();
 let teacherStudentBackTarget = "dashboard";
 let currentTeacherPage = "dashboard";
+let teacherStatusReturnContext = null;
 let latestTeacherOverviewStudents = [];
 let teacherOverviewDate = "";
 let latestTeacherClasses = [];
@@ -219,11 +251,23 @@ let teacherStudentSort = { key: "full_name", dir: "asc" };
 const teacherStudentFilters = {};
 let teacherStatusSort = { key: "sub_type", dir: "asc" };
 const teacherStatusFilters = {};
+let classGroupStatusSort = { key: "student", dir: "asc" };
+const classGroupStatusFilters = {};
 const selectedClassNames = new Set();
 const selectedClassGroupIds = new Set();
 let classGroupStudentPickerSort = { key: "full_name", dir: "asc" };
 const classGroupStudentPickerFilters = {};
 const classGroupStudentPickerSelected = new Set();
+let radarPowerSort = { key: "student_name", dir: "asc" };
+let studentLearningStatusSort = { key: "topic", dir: "asc" };
+const studentLearningStatusFilters = {};
+let latestStudentReviewRecords = [];
+let studentStatusReturnContext = null;
+let practiceOptions = [];
+let currentPracticeQuestion = null;
+let currentPracticeSubmitted = null;
+const practiceSeenQuestionIds = new Set();
+let practiceQuestionStartTime = 0;
 let dailyAssignments = [];
 let dailyDate = "";
 let currentDailyIndex = 0;
@@ -250,6 +294,7 @@ let todayMissionCompleted = false;
 let serverTokenBalance = 0;
 let styleShopState = null;
 let frameStyleValueMap = new Map();
+let frameImageUrlMap = new Map();
 const PEN_COLOR_OPTIONS = ["#ff8a00", "#16a34a", "#2563eb", "#e11d48"];
 const HIGHLIGHTER_COLOR_OPTIONS = ["#fde047", "#93c5fd", "#86efac", "#fdba74"];
 const GACHA_DRAW_VIDEO_BY_PACK = {
@@ -324,7 +369,11 @@ function formatDropRate(rate) {
   return `${pct.toFixed(pct >= 10 ? 0 : 1)}%`;
 }
 
-function buildFramePreviewVisual(styleKeyRaw) {
+function buildFramePreviewVisual(styleKeyRaw, imageUrlRaw = "", nameRaw = "Frame") {
+  const imageUrl = String(imageUrlRaw || "").trim();
+  if (imageUrl) {
+    return `<div class="frame-preview-visual image-frame"><img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(String(nameRaw || "Frame"))}" class="frame-preview-img" /></div>`;
+  }
   const styleKey = String(styleKeyRaw || "basic").trim().toLowerCase();
   const safe = /^(basic|neon|sakura|aurora|inferno|holo|mythic)$/.test(styleKey) ? styleKey : "basic";
   return `<div class="frame-preview-visual ${safe}"><div class="frame-preview-core"></div></div>`;
@@ -340,7 +389,7 @@ function setTopTokenBadge() {
   if (!topTokenBadge || me?.role !== "student") return;
   topTokenBadge.hidden = false;
   topTokenBadge.textContent = `💎 ${getDisplayedTokenBalance()}`;
-  topTokenBadge.title = `${DIAMOND_RULE_TOOLTIP}\n\nStyle Shop is preview-only now (local browser).`;
+  topTokenBadge.title = DIAMOND_RULE_TOOLTIP;
 }
 
 function getSelectedStyleValue(category, fallback = "") {
@@ -352,9 +401,26 @@ function getSelectedStyleValue(category, fallback = "") {
   return String(item?.value || fallback);
 }
 
+function getSelectedFrameImageUrl() {
+  const sid = String(styleShopState?.selected?.frame || "").trim();
+  return String(frameImageUrlMap.get(sid) || "").trim();
+}
+
 function applyStyleShopVisuals() {
   const frame = getSelectedStyleValue("frame", "basic");
   document.body.setAttribute("data-style-frame", frame);
+  if (!welcomeAvatarImage) return;
+  const wrap = welcomeAvatarImage.closest(".welcome-avatar-wrap");
+  if (!wrap) return;
+  wrap.querySelectorAll(".welcome-frame-overlay-img").forEach((node) => node.remove());
+  const imageUrl = getSelectedFrameImageUrl();
+  if (!imageUrl) return;
+  const img = document.createElement("img");
+  img.className = "welcome-frame-overlay-img";
+  img.alt = "";
+  img.setAttribute("aria-hidden", "true");
+  img.src = imageUrl;
+  wrap.appendChild(img);
 }
 
 function disableDrawModeForQuestion(questionId) {
@@ -571,22 +637,32 @@ function setStudentTheme(mode) {
 
 function loadStudentPagePreference() {
   const v = String(localStorage.getItem(STUDENT_PAGE_KEY) || "").trim();
-  return v === "profile" || v === "today-review" || v === "settings" ? v : "daily";
+  return v === "practice" || v === "today-review" || v === "settings" ? v : "profile";
 }
 
 function saveStudentPagePreference(page) {
-  const v = page === "profile" || page === "today-review" || page === "settings" ? page : "daily";
+  if (page === "daily") return;
+  const v = page === "practice" || page === "today-review" || page === "settings" ? page : "profile";
   localStorage.setItem(STUDENT_PAGE_KEY, v);
 }
 
 function loadTeacherPagePreference() {
   const v = String(localStorage.getItem(TEACHER_PAGE_KEY) || "").trim();
-  return v === "groups" || v === "batch" ? v : "dashboard";
+  return v === "groups" || v === "batch" || v === "alert" || v === "student_profile" ? v : "dashboard";
 }
 
 function saveTeacherPagePreference(page) {
-  const v = page === "groups" || page === "batch" ? page : "dashboard";
+  const v = page === "groups" || page === "batch" || page === "alert" || page === "student_profile" ? page : "dashboard";
   localStorage.setItem(TEACHER_PAGE_KEY, v);
+}
+
+function saveTeacherProfileStudentId(studentId) {
+  const id = String(studentId || "").trim();
+  if (id) localStorage.setItem(TEACHER_PROFILE_STUDENT_KEY, id);
+}
+
+function loadTeacherProfileStudentId() {
+  return String(localStorage.getItem(TEACHER_PROFILE_STUDENT_KEY) || "").trim();
 }
 
 function getDailyCursorKey(dateValue) {
@@ -606,6 +682,11 @@ function loadDailyCursor(dateValue) {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+function clearDailyCursor(dateValue) {
+  if (!dateValue) return;
+  localStorage.removeItem(getDailyCursorKey(dateValue));
+}
+
 async function switchStudentPage(page) {
   if (initialAssessmentRequired) {
     hideStudentLearningSurfacesForAssessment();
@@ -615,17 +696,20 @@ async function switchStudentPage(page) {
   const requested =
     page === "profile"
       ? "profile"
-      : page === "today-review"
-        ? "today-review"
-        : page === "settings"
-          ? "settings"
-          : "daily";
+      : page === "practice"
+        ? "practice"
+        : page === "today-review"
+          ? "today-review"
+          : page === "settings"
+            ? "settings"
+            : "daily";
   const target = requested === "today-review" && !dailyReviewAvailable ? "daily" : requested;
   if (studentAssessmentPanel) studentAssessmentPanel.hidden = true;
   document.body.setAttribute("data-student-page", target);
   saveStudentPagePreference(target);
   if (studentDailyPanel) studentDailyPanel.hidden = target !== "daily";
-  if (studentProfilePanel) studentProfilePanel.hidden = target === "today-review";
+  if (studentProfilePanel) studentProfilePanel.hidden = target !== "profile";
+  if (studentPracticePanel) studentPracticePanel.hidden = target !== "practice";
   if (studentTodayReviewPage) studentTodayReviewPage.hidden = target !== "today-review";
   if (studentSettingsPage) studentSettingsPage.hidden = target !== "settings";
   if (studentAvatarShopPage && target !== "profile") studentAvatarShopPage.hidden = true;
@@ -638,18 +722,39 @@ async function switchStudentPage(page) {
   if (studentTodayReviewLink) studentTodayReviewLink.classList.toggle("active", target === "today-review");
   if (studentTodayReviewLink) studentTodayReviewLink.disabled = !dailyReviewAvailable;
   if (profileDailyMissionBtn) {
-    const showMission = target === "profile";
+    const showMission = target === "profile" || target === "practice";
     profileDailyMissionBtn.hidden = !showMission;
     profileDailyMissionBtn.style.display = showMission ? "" : "none";
+  }
+  if (openPracticeModeBtn && me?.role === "student") {
+    const showPractice = target === "profile" || target === "practice";
+    openPracticeModeBtn.hidden = !showPractice;
+    openPracticeModeBtn.style.display = showPractice ? "" : "none";
   }
 
   if (target === "profile") {
     await loadStudentStats();
     await loadStudentReview();
+  } else if (target === "practice") {
+    await loadPracticeOptions();
   } else if (target === "today-review") {
     renderTodayReview(dailyAssignments, dailyDate);
     await typeset(dailyReviewList || studentList);
   }
+}
+
+function switchProfileTab(tabName) {
+  const selected = String(tabName || "class-performance");
+  document.querySelectorAll("[data-profile-tab]").forEach((btn) => {
+    const active = String(btn.getAttribute("data-profile-tab") || "") === selected;
+    btn.classList.toggle("active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  document.querySelectorAll("[data-profile-panel]").forEach((panel) => {
+    const active = String(panel.getAttribute("data-profile-panel") || "") === selected;
+    panel.hidden = !active;
+    panel.classList.toggle("active", active);
+  });
 }
 
 function escapeHtml(value) {
@@ -711,6 +816,18 @@ function clearCachedAssessmentQuestions() {
   }
 }
 
+function assessmentQuestionsHaveUniqueSubtopics(questions) {
+  const subtopicSet = new Set();
+  for (const q of Array.isArray(questions) ? questions : []) {
+    const id = String(q?.id || "");
+    const topic = String(q?.topic || "").trim().toLowerCase() || `blank-topic-${id}`;
+    const subtopic = `${topic}|||${String(q?.sub_type || "").trim().toLowerCase() || `blank-subtopic-${id}`}`;
+    if (subtopicSet.has(subtopic)) return false;
+    subtopicSet.add(subtopic);
+  }
+  return subtopicSet.size === (Array.isArray(questions) ? questions.length : 0);
+}
+
 function toBase64Url(bytes) {
   let binary = "";
   const chunkSize = 0x8000;
@@ -731,7 +848,14 @@ function buildKrokiTikzUrl(tikzSource) {
     ? source
     : [
         "\\documentclass[tikz,border=2pt]{standalone}",
+        "\\usepackage[utf8]{inputenc}",
         "\\usepackage{amsmath}",
+        "\\usepackage{amssymb}",
+        "\\DeclareUnicodeCharacter{2713}{\\ensuremath{\\checkmark}}",
+        "\\DeclareUnicodeCharacter{2714}{\\ensuremath{\\checkmark}}",
+        "\\DeclareUnicodeCharacter{2717}{\\ensuremath{\\times}}",
+        "\\DeclareUnicodeCharacter{2718}{\\ensuremath{\\times}}",
+        "\\DeclareUnicodeCharacter{00D7}{\\ensuremath{\\times}}",
         "\\usepackage{tikz}",
         "\\usetikzlibrary{angles,quotes,calc,arrows.meta,positioning,decorations.pathreplacing}",
         "\\begin{document}",
@@ -793,6 +917,20 @@ function sanitizeTikzBlockForPortal(block) {
     /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{\$([^$]+)\$\}\s*;/g,
     (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
   );
+  // TikZ/LaTeX does not accept Unicode tick/cross marks directly.
+  s = s.replace(
+    /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{([^{}]*)\}\s*;/g,
+    (_m, opt = "", coord, label) => {
+      const normalized = String(label || "")
+        .trim()
+        .replace(/[✓✔]/g, "\\checkmark")
+        .replace(/[✗✘×]/g, "\\times");
+      if (/^\\(?:checkmark|times)$/.test(normalized)) {
+        return `\\node${opt} at (${coord}) {$${normalized}$};`;
+      }
+      return `\\node${opt} at (${coord}) {${label}};`;
+    }
+  );
   // Avoid plain-text underscore parse errors after sanitization.
   s = s.replace(/\{([^{}]*?)h_a([^{}]*?)\}/g, (_m, a, b) => `{${a}h\\_a${b}}`);
   return s;
@@ -816,6 +954,9 @@ function processTikzAsyncPortal() {
 function formatLatexForReadableLines(text, multiline = false) {
   let value = String(text || "").replace(/\\n/g, "\n").trim();
   if (!value) return "";
+  value = value
+    .replace(/(\d+(?:\.\d+)?)\s*\^?\\?circ\s*/g, "$1\u00b0")
+    .replace(/\\circ(?=[A-Za-z])/g, "\\circ ");
 
   const hasMathDelimiters = (line) => /(\$|\\\(|\\\[|\\begin\{)/.test(line);
   const normalizeUndelimitedLatexLine = (line) => {
@@ -859,31 +1000,50 @@ function formatLatexForReadableLines(text, multiline = false) {
 
   if (!lines.length) return "";
 
+  const bracesBalanced = (textValue) => {
+    let depth = 0;
+    for (const char of String(textValue || "")) {
+      if (char === "{") depth += 1;
+      if (char === "}") depth -= 1;
+      if (depth < 0) return false;
+    }
+    return depth === 0;
+  };
+
+  const wrapUndelimitedLatexLine = (line) => {
+    if (hasMathDelimiters(line) || !/\\[a-zA-Z]+/.test(line)) return line;
+
+    const choiceMatch = line.match(/^([A-Z]\.\s*)(.+)$/);
+    const prefix = choiceMatch ? choiceMatch[1] : "";
+    const body = choiceMatch ? choiceMatch[2] : line;
+    const latexStart = body.search(/\\[a-zA-Z]+/);
+    if (latexStart < 0) return line;
+
+    const leadingText = body.slice(0, latexStart);
+    let latexText = body.slice(latexStart).trim();
+    let trailingText = "";
+    const trailingMatch = latexText.match(/^([\s\S]*?)([.!?。])$/);
+    if (trailingMatch && bracesBalanced(trailingMatch[1])) {
+      latexText = trailingMatch[1].trim();
+      trailingText = trailingMatch[2];
+    }
+
+    return `${prefix}${leadingText}\\(${latexText}\\)${trailingText}`;
+  };
+
   const wrapLineIfNeeded = (line) => {
     const alreadyDisplay = /^\\\[[\s\S]*\\\]$/.test(line) || /^\$\$[\s\S]*\$\$$/.test(line);
     if (alreadyDisplay) return line;
 
-    // If a line already has explicit inline math, still wrap whole line as display
-    // so mixed LaTeX like \text{Step...} \(x+1\) is rendered consistently.
-    const hasLatexCommand = /\\[a-zA-Z]+/.test(line);
-    if (hasLatexCommand) return `\\[${line}\\]`;
-    return line;
+    return wrapUndelimitedLatexLine(line);
   };
 
   if (multiline) {
-    // Keep solution lines as plain text with inline math markers;
-    // wrapping whole lines in display math makes normal text lose spaces.
-    value = lines.map((line) => normalizeUndelimitedLatexLine(line)).join("\n\n");
+    value = lines.map((line) => wrapLineIfNeeded(line)).join("\n\n");
   } else if (lines.length > 1) {
     value = lines.map((line) => wrapLineIfNeeded(line)).join("\n");
   } else {
-    const single = lines[0];
-    const hasLatexCommand = /\\[a-zA-Z]+/.test(single);
-    if (hasLatexCommand) {
-      value = `\\[${single}\\]`;
-    } else {
-      value = single;
-    }
+    value = wrapLineIfNeeded(lines[0]);
   }
 
   return value;
@@ -897,7 +1057,8 @@ function renderQuestionBody(target, rawText, options = {}) {
   if (cleanedText) {
     const textDiv = document.createElement("div");
     textDiv.className = "math-content";
-    textDiv.textContent = multiline ? formatLatexForReadableLines(cleanedText, true) : cleanedText;
+    const readableText = formatChoicesOnSeparateLines(cleanedText);
+    textDiv.textContent = formatLatexForReadableLines(readableText, multiline);
     target.appendChild(textDiv);
   }
 
@@ -1001,8 +1162,8 @@ function buildSubmissionState(submission) {
   return { text: "Submitted", cardClass: "is-submitted", badgeClass: "is-submitted" };
 }
 
-function getSelectedMcAnswer(questionId) {
-  const group = studentList.querySelector(`.mc-options[data-question-id='${questionId}']`);
+function getSelectedMcAnswer(questionId, root = studentList) {
+  const group = root?.querySelector(`.mc-options[data-question-id='${questionId}']`);
   if (!group) return "";
   return String(group.getAttribute("data-selected") || "").trim();
 }
@@ -1017,8 +1178,8 @@ function setSelectedMcAnswer(group, selected) {
   });
 }
 
-function wireMcButtons() {
-  studentList.querySelectorAll(".mc-options").forEach((group) => {
+function wireMcButtons(root = studentList) {
+  root?.querySelectorAll(".mc-options").forEach((group) => {
     group.querySelectorAll("button[data-option]").forEach((btn) => {
       btn.addEventListener("click", () => {
         const option = String(btn.getAttribute("data-option") || "");
@@ -1162,7 +1323,9 @@ function showAuthView() {
   authCard.hidden = false;
   appCard.hidden = true;
   studentView.hidden = true;
+  if (adminView) adminView.hidden = true;
   if (studentAssessmentPanel) studentAssessmentPanel.hidden = true;
+  if (studentPracticePanel) studentPracticePanel.hidden = true;
   teacherView.hidden = true;
   if (teacherBatchPage) teacherBatchPage.hidden = true;
   if (teacherGroupPage) teacherGroupPage.hidden = true;
@@ -1177,6 +1340,32 @@ function showAppView() {
 async function loadMe() {
   me = await api("/api/auth/me");
 
+  if (me.role === "admin") {
+    document.body.setAttribute("data-student-page", "teacher");
+    if (welcomeTitle) welcomeTitle.textContent = "";
+    if (welcomeSubtitle) welcomeSubtitle.textContent = "";
+    if (welcomeProfile) welcomeProfile.hidden = true;
+    if (topShopBtn) topShopBtn.hidden = true;
+    if (profileDailyMissionBtn) profileDailyMissionBtn.hidden = true;
+    if (openPracticeModeBtn) openPracticeModeBtn.hidden = true;
+    if (topTokenBadge) topTokenBadge.hidden = true;
+    studentView.hidden = true;
+    teacherView.hidden = true;
+    if (teacherBatchPage) teacherBatchPage.hidden = true;
+    if (teacherGroupPage) teacherGroupPage.hidden = true;
+    if (teacherStudentPage) teacherStudentPage.hidden = true;
+    if (adminView) adminView.hidden = false;
+    if (topChangePwBtn) topChangePwBtn.hidden = false;
+    if (topChangePwPanel) topChangePwPanel.hidden = true;
+    await loadAdminAccounts().catch((error) => {
+      setMessage(adminAccountListMessage, error.message || "Failed to load accounts.", "error");
+    });
+    await loadAdminClassTeacherAssignments().catch((error) => {
+      setMessage(adminClassTeacherMessage, error.message || "Failed to load class teacher settings.", "error");
+    });
+    return;
+  }
+
   if (me.role === "teacher") {
     document.body.setAttribute("data-student-page", "teacher");
     if (welcomeTitle) welcomeTitle.textContent = "";
@@ -1186,10 +1375,15 @@ async function loadMe() {
     if (openAvatarShopBtn) openAvatarShopBtn.hidden = true;
     if (topShopBtn) topShopBtn.hidden = true;
     if (profileDailyMissionBtn) profileDailyMissionBtn.hidden = true;
+    if (openPracticeModeBtn) openPracticeModeBtn.hidden = true;
     if (topTokenBadge) topTokenBadge.hidden = true;
     studentView.hidden = true;
+    if (adminView) adminView.hidden = true;
     const preferredTeacherPage = loadTeacherPagePreference();
-    if (preferredTeacherPage === "groups") showTeacherGroupPage();
+    const preferredProfileStudentId = loadTeacherProfileStudentId();
+    if (preferredTeacherPage === "student_profile" && preferredProfileStudentId) {
+      showTeacherStudentPage();
+    } else if (preferredTeacherPage === "groups") showTeacherGroupPage();
     else if (preferredTeacherPage === "alert" || preferredTeacherPage === "batch") showTeacherAlertPage();
     else showTeacherDashboardPage();
     if (themeLightBtn) themeLightBtn.disabled = false;
@@ -1206,11 +1400,19 @@ async function loadMe() {
         // Keep teacher page usable.
       }
     }
+    if (preferredTeacherPage === "student_profile" && preferredProfileStudentId) {
+      try {
+        await openTeacherStudentPage(preferredProfileStudentId);
+      } catch (_e) {
+        showTeacherGroupPage();
+      }
+    }
   } else {
     styleShopState = loadStyleShopState(me.user_id);
     serverTokenBalance = Number(me.token_balance || 0);
     if (me.selected_frame) {
       frameStyleValueMap.set(String(me.selected_frame.id), String(me.selected_frame.style_key || "basic"));
+      frameImageUrlMap.set(String(me.selected_frame.id), String(me.selected_frame.image_url || ""));
       styleShopState.selected.frame = String(me.selected_frame.id);
       saveStyleShopState(me.user_id, styleShopState);
     }
@@ -1225,8 +1427,10 @@ async function loadMe() {
     if (openAvatarShopBtn) openAvatarShopBtn.hidden = true;
     if (topShopBtn) topShopBtn.hidden = false;
     if (profileDailyMissionBtn) profileDailyMissionBtn.hidden = true;
+    if (openPracticeModeBtn) openPracticeModeBtn.hidden = true;
     setTopTokenBadge();
     teacherView.hidden = true;
+    if (adminView) adminView.hidden = true;
     if (teacherStudentPage) teacherStudentPage.hidden = true;
     studentView.hidden = false;
     if (themeLightBtn) themeLightBtn.disabled = false;
@@ -1311,6 +1515,7 @@ async function renderCurrentDailyQuestion() {
   if (!dailyAssignments.length) {
     studentList.innerHTML = "<p>No questions assigned yet.</p>";
     if (dailyProgressLabel) dailyProgressLabel.textContent = "Question 0 / 0";
+    updateDailyCompletionActions(false);
     return;
   }
 
@@ -1326,6 +1531,7 @@ async function renderCurrentDailyQuestion() {
   const difficulty = String(q.difficulty || "").trim() || "-";
   const hasSolution = isSubmitted && String(q.solution_latex || "").trim();
   const hasCorrectAnswer = isSubmitted && String(q.answer_text || "").trim();
+  const isLastQuestion = currentDailyIndex >= dailyAssignments.length - 1;
 
   studentList.innerHTML = `
     <article class="question-card ${state.cardClass}">
@@ -1509,8 +1715,18 @@ async function renderCurrentDailyQuestion() {
     const canForward = isSubmitted && currentDailyIndex < dailyAssignments.length - 1;
     dailyNextBtn.disabled = !canForward;
   }
+  updateDailyCompletionActions(isLastQuestion && isSubmitted);
 
   await typeset(studentList);
+}
+
+function updateDailyCompletionActions(show) {
+  const visible = Boolean(show && dailyReviewAvailable);
+  if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = !visible;
+  if (dailyRefreshLatestBtn) {
+    dailyRefreshLatestBtn.hidden = !visible;
+    dailyRefreshLatestBtn.disabled = !visible;
+  }
 }
 
 function initializeRoughWorkCanvas(questionId) {
@@ -1960,12 +2176,8 @@ async function loadStudentDaily() {
     const totalCount = dailyAssignments.length;
     updateDailyMissionIndicator(submittedCount, totalCount);
     const allAssignedDone = totalCount > 0 && submittedCount >= totalCount;
-    if (dailyRefreshLatestBtn) {
-      dailyRefreshLatestBtn.disabled = !allAssignedDone;
-      dailyRefreshLatestBtn.hidden = !allAssignedDone;
-    }
     dailyReviewAvailable = allAssignedDone;
-    if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = !dailyReviewAvailable;
+    updateDailyCompletionActions(false);
 
     const savedIndex = loadDailyCursor(dailyDate);
     if (savedIndex !== null && savedIndex >= 0 && savedIndex < dailyAssignments.length) {
@@ -2006,6 +2218,7 @@ async function loadStudentDaily() {
 function hideStudentLearningSurfacesForAssessment() {
   if (studentDailyPanel) studentDailyPanel.hidden = true;
   if (studentProfilePanel) studentProfilePanel.hidden = true;
+  if (studentPracticePanel) studentPracticePanel.hidden = true;
   if (studentTodayReviewPage) studentTodayReviewPage.hidden = true;
   if (studentAvatarShopPage) studentAvatarShopPage.hidden = true;
   if (studentOwnedOverlay) studentOwnedOverlay.hidden = true;
@@ -2039,7 +2252,7 @@ function renderAssessmentQuestions(questions) {
                 ${detectMcLabels(q.latex_code)
                   .map((label) => `<button type="button" class="mc-choice" data-assessment-answer="${escapeHtml(label)}">${escapeHtml(label)}</button>`)
                   .join("")}
-                <button type="button" class="mc-choice dont-know-choice" data-assessment-answer="">Don't know</button>
+                <button type="button" class="mc-choice dont-know-choice" data-assessment-answer="__dont_know__">Don't know</button>
               </div>
             </div>
           </div>
@@ -2078,9 +2291,36 @@ async function loadInitialAssessmentIfNeeded() {
   initialAssessmentRequired = true;
   hideStudentLearningSurfacesForAssessment();
   let questions = getCachedAssessmentQuestions();
-  if (!questions || !questions.length) {
-    questions = shuffleCopy(data.questions || []);
+  const serverQuestions = Array.isArray(data.questions) ? data.questions : [];
+  if (
+    !questions ||
+    !questions.length ||
+    questions.length !== serverQuestions.length ||
+    !assessmentQuestionsHaveUniqueSubtopics(questions)
+  ) {
+    if (questions && questions.length) clearCachedAssessmentQuestions();
+    questions = shuffleCopy(serverQuestions);
     setCachedAssessmentQuestions(questions);
+  }
+  if (data.debug) {
+    const displayedByLevel = { lv2: 0, lv3: 0, lv4: 0, lv5: 0 };
+    for (const q of questions) {
+      if (Object.prototype.hasOwnProperty.call(displayedByLevel, q.difficulty)) displayedByLevel[q.difficulty] += 1;
+    }
+    console.log("Initial assessment debug (displayed questions)", {
+      ...data.debug,
+      displayed_question_count: questions.length,
+      displayed_by_level: displayedByLevel
+    });
+    console.table(
+      questions.map((q) => ({
+        id: q.id,
+        difficulty: q.difficulty,
+        grade: q.grade,
+        topic: q.topic,
+        sub_type: q.sub_type
+      }))
+    );
   }
   renderAssessmentQuestions(questions);
   await typeset(assessmentList);
@@ -2093,38 +2333,332 @@ async function loadStudentStats() {
   const data = await api("/api/student/stats");
   serverTokenBalance = Number(data.token_balance || 0);
   updateDailyMissionIndicator(Number(data.submitted_today || 0), 5);
-  studentStats.innerHTML = `
-    <div class="stat"><strong>Done:</strong> ${data.questions_done}</div>
-    <div class="stat"><strong>Correct:</strong> ${data.correct_percentage}%</div>
-    <div class="stat"><strong>Avg Time:</strong> ${formatSeconds(data.average_time_seconds)}</div>
-    <div class="stat"><strong>Class:</strong> ${escapeHtml(String(data.class_name || "-"))}</div>
-  `;
+  studentStats.innerHTML = "";
   renderStudentRadar(data);
-  renderClassTitles(data.class_titles || []);
+  renderClassTitles([]);
   setTopTokenBadge();
+}
+
+function practiceSelection() {
+  return {
+    difficulty: String(practiceLvSelect?.value || "").trim(),
+    topic: String(practiceTopicSelect?.value || "").trim(),
+    sub_type: String(practiceSubtopicSelect?.value || "").trim()
+  };
+}
+
+function practiceOptionMatches(option, selected, omitField = "") {
+  if (omitField !== "difficulty" && selected.difficulty && option.difficulty !== selected.difficulty) return false;
+  if (omitField !== "topic" && selected.topic && option.topic !== selected.topic) return false;
+  if (omitField !== "sub_type" && selected.sub_type && option.sub_type !== selected.sub_type) return false;
+  return true;
+}
+
+function uniquePracticeValues(field, selected, omitField) {
+  return [...new Set(
+    practiceOptions
+      .filter((option) => practiceOptionMatches(option, selected, omitField))
+      .map((option) => String(option?.[field] || "").trim())
+      .filter(Boolean)
+  )];
+}
+
+function renderPracticeOptions() {
+  if (!practiceLvSelect || !practiceTopicSelect || !practiceSubtopicSelect) return;
+  const selected = practiceSelection();
+  const lvList = uniquePracticeValues("difficulty", selected, "difficulty")
+    .sort((a, b) => difficultyOrder.indexOf(a) - difficultyOrder.indexOf(b));
+  practiceLvSelect.innerHTML = `<option value="">All Lv</option>${lvList
+    .map((lv) => `<option value="${escapeHtml(lv)}">${escapeHtml(lv)}</option>`)
+    .join("")}`;
+  if (selected.difficulty && lvList.includes(selected.difficulty)) practiceLvSelect.value = selected.difficulty;
+
+  const selectedAfterLv = { ...selected, difficulty: String(practiceLvSelect.value || "") };
+  const topicList = uniquePracticeValues("topic", selectedAfterLv, "topic")
+    .sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }));
+  practiceTopicSelect.innerHTML = `<option value="">All Topics</option>${topicList
+    .map((topic) => `<option value="${escapeHtml(topic)}">${escapeHtml(topic)}</option>`)
+    .join("")}`;
+  if (selected.topic && topicList.includes(selected.topic)) practiceTopicSelect.value = selected.topic;
+
+  const selectedAfterTopic = {
+    ...selectedAfterLv,
+    topic: String(practiceTopicSelect.value || "")
+  };
+  const subList = uniquePracticeValues("sub_type", selectedAfterTopic, "sub_type")
+    .sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }));
+  practiceSubtopicSelect.innerHTML = `<option value="">All Sub-topics</option>${subList
+    .map((subType) => `<option value="${escapeHtml(subType)}">${escapeHtml(subType)}</option>`)
+    .join("")}`;
+  if (selected.sub_type && subList.includes(selected.sub_type)) practiceSubtopicSelect.value = selected.sub_type;
+}
+
+async function loadPracticeOptions() {
+  if (!practiceOptions.length) {
+    const data = await api("/api/student/practice/options", { timeout_ms: 15000 });
+    practiceOptions = Array.isArray(data?.options) ? data.options : [];
+    renderPracticeOptions();
+  }
+}
+
+async function loadPracticeQuestion() {
+  const selected = practiceSelection();
+  setMessage(practiceMessage, "Loading practice question...");
+  const data = await api("/api/student/practice/question", {
+    method: "POST",
+    body: JSON.stringify({ ...selected, exclude_question_ids: [...practiceSeenQuestionIds] }),
+    timeout_ms: 15000
+  });
+  currentPracticeQuestion = data.question || null;
+  currentPracticeSubmitted = null;
+  if (currentPracticeQuestion?.id) practiceSeenQuestionIds.add(Number(currentPracticeQuestion.id));
+  practiceQuestionStartTime = Date.now();
+  renderPracticeQuestion();
+  setMessage(practiceMessage, "");
+}
+
+function renderPracticeQuestion() {
+  if (!practiceQuestionList) return;
+  const q = currentPracticeQuestion || {};
+  if (!q.id) {
+    practiceQuestionList.innerHTML = "<p>Choose a sub-topic and start practice.</p>";
+    return;
+  }
+  const isSubmitted = Boolean(currentPracticeSubmitted);
+  const state = buildSubmissionState(currentPracticeSubmitted);
+  const isMc = String(q.question_type || "").trim() === "MC";
+  const answerValue = String(currentPracticeSubmitted?.answer_text || "").trim();
+  const mcLabels = detectMcLabels(q.latex_code || "");
+  practiceQuestionList.innerHTML = `
+    <article class="question-card ${state.cardClass}">
+      <div class="question-head">
+        <div class="question-head-main">
+          <strong>Practice question</strong>
+        </div>
+        <div class="question-head-right">
+          <div class="question-labels question-head-labels">
+            <span class="mini-tag topic-tag">${escapeHtml(String(q.topic || "General"))}</span>
+            <span class="mini-tag lv-tag">${escapeHtml(String(q.difficulty || "-"))}</span>
+            <span class="mini-tag type-tag">${escapeHtml(String(q.question_type || "Short Answer"))}</span>
+          </div>
+          <span class="badge ${state.badgeClass}">${escapeHtml(state.text)}</span>
+        </div>
+      </div>
+      <div class="question-split ${isSubmitted ? "has-solution" : ""}">
+        <div class="question-main">
+          <div class="question-body" id="practice-question-body-${q.id}"></div>
+          ${
+            isMc
+              ? `
+                <div class="mc-wrap">
+                  <div class="answer-label">Choose one answer</div>
+                  <div class="mc-options" data-question-id="${q.id}" data-selected="${escapeHtml(answerValue.toUpperCase())}">
+                    ${mcLabels
+                      .map((label) => `<button type="button" class="mc-choice" data-option="${label}" aria-pressed="false" ${isSubmitted ? "disabled" : ""}>${label}</button>`)
+                      .join("")}
+                  </div>
+                </div>
+              `
+              : `
+                <label>
+                  Your answer
+                  <textarea data-practice-question-id="${q.id}" rows="2" placeholder="Type your answer here..." ${isSubmitted ? "readonly disabled" : ""}>${escapeHtml(answerValue)}</textarea>
+                </label>
+              `
+          }
+          <button type="button" data-practice-submit-id="${q.id}" ${isSubmitted ? "disabled" : ""}>${isSubmitted ? "Submitted" : "Submit Answer"}</button>
+        </div>
+        ${
+          isSubmitted
+            ? `
+              <aside class="question-side">
+                <div class="answer-reveal side-answer-reveal">
+                  <div class="answer-reveal-label">Correct Answer</div>
+                  <div class="answer-reveal-value">${escapeHtml(String(q.answer_text || "").trim())}</div>
+                </div>
+                ${
+                  String(q.solution_latex || "").trim()
+                    ? `<details class="solution-panel side-solution-panel" open><summary>Solution</summary><div class="solution-body" id="practice-solution-body-${q.id}"></div></details>`
+                    : ""
+                }
+              </aside>
+            `
+            : ""
+        }
+      </div>
+    </article>
+  `;
+  const body = document.getElementById(`practice-question-body-${q.id}`);
+  if (body) renderQuestionBody(body, q.latex_code || "");
+  const solutionBody = document.getElementById(`practice-solution-body-${q.id}`);
+  if (solutionBody) renderQuestionBody(solutionBody, q.solution_latex || "", { multiline: true });
+  wireMcButtons(practiceQuestionList);
+  practiceQuestionList.querySelectorAll(".mc-options").forEach((group) => {
+    setSelectedMcAnswer(group, group.getAttribute("data-selected") || "");
+  });
+  const submitBtn = practiceQuestionList.querySelector("button[data-practice-submit-id]");
+  if (submitBtn) {
+    submitBtn.addEventListener("click", submitPracticeAnswer);
+  }
+  typeset(practiceQuestionList);
+}
+
+async function submitPracticeAnswer() {
+  const q = currentPracticeQuestion || {};
+  const questionId = Number(q.id);
+  const mcAnswer = getSelectedMcAnswer(questionId, practiceQuestionList);
+  const textarea = practiceQuestionList?.querySelector(`textarea[data-practice-question-id='${questionId}']`);
+  const answer = mcAnswer || String(textarea?.value || "").trim();
+  if (!answer) {
+    setMessage(practiceMessage, "Please choose/type an answer before submitting.", "error");
+    return;
+  }
+  const elapsedSeconds = practiceQuestionStartTime ? Math.max(1, Math.round((Date.now() - practiceQuestionStartTime) / 1000)) : null;
+  const result = await api("/api/student/practice/submit", {
+    method: "POST",
+    body: JSON.stringify({ question_id: questionId, answer_text: answer, time_spent_seconds: elapsedSeconds })
+  });
+  currentPracticeSubmitted = {
+    answer_text: answer,
+    is_correct: result?.is_correct,
+    submitted_at: result?.submission?.submitted_at,
+    time_spent_seconds: elapsedSeconds
+  };
+  const reward = Number(result?.token_reward || 0);
+  if (Number.isFinite(Number(result?.token_balance))) {
+    serverTokenBalance = Number(result.token_balance);
+    setTopTokenBadge();
+  }
+  setMessage(
+    practiceMessage,
+    `${result?.is_correct === true ? "Correct." : "Submitted."}${reward > 0 ? ` +${reward} diamonds` : ""} Practice does not change your learning status or daily questions.`,
+    result?.is_correct === true ? "success" : "error"
+  );
+  renderPracticeQuestion();
+  if (practiceNextBtn) practiceNextBtn.hidden = false;
+  await loadStudentStats();
 }
 
 function renderClassTitles(titles) {
   if (!studentClassTitles) return;
-  const rows = Array.isArray(titles) ? titles : [];
-  if (!rows.length) {
-    studentClassTitles.innerHTML = `<div class="stat"><strong>Class Titles:</strong> No titles yet.</div>`;
-    return;
+  studentClassTitles.innerHTML = "";
+}
+
+const RADAR_DISPLAY_LABELS = {
+  Combo: "Longest streaks",
+  Aim: "Correct %",
+  Flash: "Speed",
+  Grind: "Questions done",
+  Fortune: "Diamonds used"
+};
+
+function formatAspectRawValue(key, value) {
+  const n = Number(value || 0);
+  if (key === "Aim") return `${Math.round(n)}%`;
+  if (key === "Flash") return formatSeconds(Math.round(n));
+  if (key === "Combo") return `${Math.round(n)} day(s)`;
+  return `${Math.round(n)}`;
+}
+
+function getFrameClassName(frame) {
+  const style = String(frame?.style_key || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+  return style ? ` classmate-frame-${style}` : "";
+}
+
+function initialsFromName(name) {
+  const parts = String(name || "Student").trim().split(/\s+/).filter(Boolean);
+  const first = parts[0]?.[0] || "S";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return `${first}${last}`.toUpperCase();
+}
+
+function renderClassmateAvatar(row) {
+  const avatar = row?.selected_avatar || {};
+  const imageUrl = String(avatar.image_url || "").trim();
+  const emoji = String(avatar.emoji || "").trim();
+  const frameImageUrl = String(row?.selected_frame?.image_url || "").trim();
+  const frameClass = getFrameClassName(row?.selected_frame);
+  const name = String(row?.student_name || "Student");
+  const content = imageUrl
+    ? `<img src="${escapeHtml(imageUrl)}" alt="" class="classmate-avatar-img" />`
+    : `<span class="classmate-avatar-text">${escapeHtml(emoji || initialsFromName(name))}</span>`;
+  const frameImg = frameImageUrl
+    ? `<img src="${escapeHtml(frameImageUrl)}" alt="" class="classmate-avatar-frame-img" />`
+    : "";
+  return `<span class="classmate-avatar${frameClass}${frameImageUrl ? " has-image-frame" : ""}" aria-hidden="true">${content}${frameImg}</span>`;
+}
+
+function getClassmatePowerSortValue(row, key) {
+  if (key === "student_name") return String(row?.student_name || "").toLowerCase();
+  return Number(row?.aspect_values?.[key] ?? row?.metrics?.[key] ?? 0);
+}
+
+function renderClassmatePowerTable(rows, labels, className) {
+  const classmates = Array.isArray(rows) ? [...rows] : [];
+  const displayClassName = String(className || "").trim() || "Class";
+  const sort = radarPowerSort || { key: "student_name", dir: "asc" };
+  const dir = sort.dir === "desc" ? -1 : 1;
+  classmates.sort((a, b) => {
+    const av = getClassmatePowerSortValue(a, sort.key);
+    const bv = getClassmatePowerSortValue(b, sort.key);
+    if (typeof av === "number" && typeof bv === "number") return (av - bv) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+  const sortMark = (key) => (sort.key === key ? (sort.dir === "asc" ? " ↑" : " ↓") : "");
+  const headerButton = (key, label) =>
+    `<button type="button" class="table-sort-btn radar-sort-btn" data-radar-sort="${escapeHtml(key)}">${escapeHtml(label)}${sortMark(key)}</button>`;
+  if (!classmates.length) {
+    return `
+      <div class="radar-classmates">
+        <h4>${escapeHtml(displayClassName)}</h4>
+        <div class="empty-note radar-classmates-body">No classmate power data to show yet.</div>
+      </div>
+    `;
   }
-  studentClassTitles.innerHTML = rows
-    .map(
-      (t) =>
-        `<div class="stat"><strong>${escapeHtml(String(t.aspect_name || "Aspect"))}:</strong> ${escapeHtml(
-          String(t.title || "-")
-        )} · ${escapeHtml(String(t.student_name || "-"))}</div>`
-    )
-    .join("");
+  return `
+    <div class="radar-classmates">
+      <h4>${escapeHtml(displayClassName)}</h4>
+      <div class="radar-classmates-body">
+        <table class="compact-table radar-classmate-table">
+          <thead>
+            <tr>
+              <th>${headerButton("student_name", "Name")}</th>
+              ${labels
+                .map((key) => `<th>${headerButton(key, RADAR_DISPLAY_LABELS[key] || key)}</th>`)
+                .join("")}
+            </tr>
+          </thead>
+          <tbody>
+            ${classmates
+              .map(
+                (row) => `
+                  <tr>
+                    <td>
+                      <div class="classmate-name-cell">
+                        ${renderClassmateAvatar(row)}
+                        <span>${escapeHtml(String(row.student_name || "Student"))}</span>
+                      </div>
+                    </td>
+                    ${labels
+                      .map((key) => `<td>${escapeHtml(formatAspectRawValue(key, row?.aspect_values?.[key] ?? 0))}</td>`)
+                      .join("")}
+                  </tr>
+                `
+              )
+              .join("")}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
 }
 
 function renderRadarChart(target, data, labelsForLegend = { student: "You", classAvg: "Class Avg" }) {
   if (!target) return;
   const studentMetrics = data?.radar?.student || {};
   const classMetrics = data?.radar?.class_avg || {};
+  const classmatesPower = Array.isArray(data?.classmates_power) ? data.classmates_power : [];
+  const className = data?.class_name || data?.student?.class_name || "";
   const labels = Array.isArray(data?.radar?.labels) && data.radar.labels.length === 5
     ? data.radar.labels
     : ["Combo", "Aim", "Flash", "Grind", "Fortune"];
@@ -2144,9 +2678,10 @@ function renderRadarChart(target, data, labelsForLegend = { student: "You", clas
     .map((name, i) => {
       const end = toPoint(i, 100);
       const labelPt = toPoint(i, 112);
+      const displayName = RADAR_DISPLAY_LABELS[name] || name;
       return `
         <line x1="${cx}" y1="${cy}" x2="${end[0]}" y2="${end[1]}" stroke="#a9c5e8" stroke-width="1" />
-        <text x="${labelPt[0]}" y="${labelPt[1]}" class="radar-label">${escapeHtml(String(name))}</text>
+        <text x="${labelPt[0]}" y="${labelPt[1]}" class="radar-label">${escapeHtml(String(displayName))}</text>
       `;
     })
     .join("");
@@ -2154,18 +2689,34 @@ function renderRadarChart(target, data, labelsForLegend = { student: "You", clas
     .map((rPct) => `<polygon points="${poly(labels.map(() => rPct))}" fill="none" stroke="#d4e3f8" stroke-width="1" />`)
     .join("");
   target.innerHTML = `
-    <svg viewBox="0 0 ${size} ${size}" class="radar-svg" role="img" aria-label="Student vs class average radar chart">
-      ${rings}
-      ${axis}
-      <polygon points="${poly(valsClass)}" class="radar-class" />
-      <polygon points="${poly(valsStudent)}" class="radar-student" />
-      <circle cx="${cx}" cy="${cy}" r="2.2" fill="#1b3f6e" />
-    </svg>
-    <div class="inline-tools">
-      <span class="stat"><span class="legend-dot legend-student"></span> ${escapeHtml(labelsForLegend.student)}</span>
-      <span class="stat"><span class="legend-dot legend-class"></span> ${escapeHtml(labelsForLegend.classAvg)}</span>
+    <div class="radar-layout">
+      <div class="radar-chart-panel">
+        <h4>Power Pentagon</h4>
+        <svg viewBox="0 0 ${size} ${size}" class="radar-svg" role="img" aria-label="Student vs class average radar chart">
+          ${rings}
+          ${axis}
+          <polygon points="${poly(valsClass)}" class="radar-class" />
+          <polygon points="${poly(valsStudent)}" class="radar-student" />
+          <circle cx="${cx}" cy="${cy}" r="2.2" fill="#1b3f6e" />
+        </svg>
+        <div class="inline-tools">
+          <span class="stat"><span class="legend-dot legend-student"></span> ${escapeHtml(labelsForLegend.student)}</span>
+          <span class="stat"><span class="legend-dot legend-class"></span> ${escapeHtml(labelsForLegend.classAvg)}</span>
+        </div>
+      </div>
+      ${renderClassmatePowerTable(classmatesPower, labels, className)}
     </div>
   `;
+  target.querySelectorAll("[data-radar-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = String(btn.dataset.radarSort || "student_name");
+      radarPowerSort = {
+        key,
+        dir: radarPowerSort.key === key && radarPowerSort.dir === "asc" ? "desc" : "asc"
+      };
+      renderRadarChart(target, data, labelsForLegend);
+    });
+  });
 }
 
 function renderStudentRadar(data) {
@@ -2174,13 +2725,40 @@ function renderStudentRadar(data) {
 
 function renderWelcomeAvatar(selectedAvatar) {
   if (!welcomeAvatarImage) return;
-  const imageUrl = String(selectedAvatar?.image_url || "").trim();
-  const emoji = String(selectedAvatar?.emoji || "").trim() || "🐾";
-  if (imageUrl) {
-    welcomeAvatarImage.innerHTML = `<img src="${escapeHtml(imageUrl)}" alt="Profile avatar" class="welcome-avatar-photo" />`;
-  } else {
-    welcomeAvatarImage.textContent = emoji;
+  welcomeAvatarImage.innerHTML = buildAvatarVisual(selectedAvatar, {
+    photoClass: "welcome-avatar-photo",
+    modelClass: "welcome-avatar-model",
+    alt: "Profile avatar"
+  });
+}
+
+function buildAvatarVisual(avatar, options = {}) {
+  const modelUrl = String(avatar?.model_url || "").trim();
+  const imageUrl = String(avatar?.image_url || "").trim();
+  const emoji = String(avatar?.emoji || "").trim() || "🐾";
+  const name = String(options.alt || avatar?.name || "Avatar");
+  const photoClass = String(options.photoClass || "avatar-photo");
+  const modelClass = String(options.modelClass || "avatar-model");
+  if (modelUrl) {
+    return `<model-viewer
+      src="${escapeHtml(modelUrl)}"
+      alt="${escapeHtml(name)}"
+      class="${escapeHtml(modelClass)}"
+      camera-controls
+      auto-rotate
+      camera-orbit="0deg 75deg 105%"
+      field-of-view="28deg"
+      rotation-per-second="24deg"
+      interaction-prompt="none"
+      loading="lazy"
+      reveal="auto"
+      shadow-intensity="0.35"
+    ><span class="avatar-model-fallback">3D</span></model-viewer>`;
   }
+  if (imageUrl) {
+    return `<img src="${escapeHtml(imageUrl)}" alt="${escapeHtml(name)}" class="${escapeHtml(photoClass)}" />`;
+  }
+  return escapeHtml(emoji);
 }
 
 function renderOwnedCollection(data) {
@@ -2196,12 +2774,8 @@ function renderOwnedCollection(data) {
           const id = Number(avatar.id);
           return `
             <article class="avatar-card ${avatar.selected ? "selected" : ""}">
-              <div class="avatar-emoji">
-                ${
-                  avatar.image_url
-                    ? `<img src="${escapeHtml(String(avatar.image_url))}" alt="${escapeHtml(String(avatar.name || "Avatar"))}" class="avatar-photo" />`
-                    : escapeHtml(avatar.emoji || "🐾")
-                }
+              <div class="avatar-emoji ${avatar.model_url ? "has-3d-model" : ""}">
+                ${buildAvatarVisual(avatar)}
               </div>
               ${
                 avatar.selected
@@ -2220,7 +2794,7 @@ function renderOwnedCollection(data) {
           const fid = Number(item.id);
           return `
             <article class="avatar-card ${item.selected ? "selected" : ""}">
-              ${buildFramePreviewVisual(item.style_key)}
+              ${buildFramePreviewVisual(item.style_key, item.image_url, item.name)}
               ${
                 item.selected
                   ? `<button type="button" class="secondary avatar-action-btn" disabled>Using</button>`
@@ -2265,7 +2839,7 @@ function renderOwnedCollection(data) {
 function renderStudentWelcomeName() {
   if (!welcomeTitle || !me || me.role !== "student") return;
   const safeName = escapeHtml(String(me?.full_name || "Student"));
-  welcomeTitle.innerHTML = `Welcome, <button id="welcome-name-link" type="button" class="welcome-name-link">${safeName}</button>`;
+  welcomeTitle.innerHTML = `<span class="welcome-word">Welcome</span><button id="welcome-name-link" type="button" class="welcome-name-link">${safeName}</button>`;
   const welcomeNameLink = document.getElementById("welcome-name-link");
   if (welcomeNameLink) {
     welcomeNameLink.addEventListener("click", async () => {
@@ -2285,6 +2859,7 @@ function renderStudentAvatarShop(data) {
 
   const frameCatalog = Array.isArray(data?.frames) ? data.frames : [];
   frameStyleValueMap = new Map(frameCatalog.map((f) => [String(f.id), String(f.style_key || "basic")]));
+  frameImageUrlMap = new Map(frameCatalog.map((f) => [String(f.id), String(f.image_url || "")]));
   const selectedFrame = frameCatalog.find((f) => f.selected) || null;
   if (styleShopState) {
     if (!Array.isArray(styleShopState.owned)) styleShopState.owned = [];
@@ -2330,19 +2905,18 @@ function renderStudentAvatarShop(data) {
   if (previewCharactersGrid) {
     previewCharactersGrid.innerHTML = avatars
       .map((avatar) => {
-        const image = String(avatar.image_url || "").trim();
-        return `<div class="preview-pic-item">${
-          image
-            ? `<img src="${escapeHtml(image)}" class="preview-pic-img" alt="character" onerror="this.hidden=true;this.nextElementSibling.hidden=false;" /><div class="preview-pic-emoji" hidden>${escapeHtml(String(avatar.emoji || "🐾"))}</div>`
-            : `<div class="preview-pic-emoji">${escapeHtml(String(avatar.emoji || "🐾"))}</div>`
-        }</div>`;
+        return `<div class="preview-pic-item">${buildAvatarVisual(avatar, {
+          photoClass: "preview-pic-img",
+          modelClass: "preview-pic-model",
+          alt: String(avatar.name || "Character")
+        })}</div>`;
       })
       .join("");
   }
   if (previewFramesGrid) {
     previewFramesGrid.innerHTML = frameCatalog
       .map((item) => {
-        return `<div class="preview-pic-item">${buildFramePreviewVisual(item.style_key)}</div>`;
+        return `<div class="preview-pic-item">${buildFramePreviewVisual(item.style_key, item.image_url, item.name)}</div>`;
       })
       .join("");
   }
@@ -2367,7 +2941,6 @@ function renderStudentAvatarShop(data) {
             <video class="draw-loader-video" autoplay muted playsinline preload="auto">
               <source src="${escapeHtml(drawVideoSrc)}" type="video/mp4" />
             </video>
-            <div class="draw-loader-text">Opening treasure...</div>
           </div>
         `;
       }
@@ -2379,17 +2952,13 @@ function renderStudentAvatarShop(data) {
         });
         if (shopDrawRevealContent) {
           const item = result.item || {};
-          const img = String(item.image_url || "").trim();
           const isFrameReward = String(item.type || "").trim().toLowerCase() === "frame";
           const icon = isFrameReward
-            ? buildFramePreviewVisual(item.style_key)
-            : img
-              ? `<img src="${escapeHtml(img)}" class="avatar-photo" alt="${escapeHtml(String(item.name || "Item"))}" onerror="this.hidden=true;this.nextElementSibling.hidden=false;" /><div class="preview-pic-emoji" hidden>${escapeHtml(String(item.emoji || "🐾"))}</div>`
-              : escapeHtml(String(item.emoji || "🎁"));
+            ? buildFramePreviewVisual(item.style_key, item.image_url, item.name)
+            : buildAvatarVisual(item, { alt: String(item.name || "Item") });
           shopDrawRevealContent.innerHTML = `
             <div class="gacha-result reveal">
-              <div class="avatar-emoji">${icon}</div>
-              <div class="avatar-name">${escapeHtml(String(item.name || "Reward"))}</div>
+              <div class="avatar-emoji ${item.model_url ? "has-3d-model" : ""}">${icon}</div>
               <div class="avatar-meta">${escapeHtml(String(result.message || "Draw complete"))}</div>
             </div>
           `;
@@ -2415,6 +2984,7 @@ async function loadStudentAvatarShop() {
   if (!studentAvatarCatalog) return;
   const data = await api("/api/student/gacha/state");
   studentAvatarData = data;
+  window.studentAvatarData = data;
   renderStudentAvatarShop(data);
 }
 
@@ -2460,12 +3030,15 @@ function renderReviewRecords(records, target) {
   });
 }
 
-function populateTopicFilter(selectEl, records, selected = "") {
+function populateTopicFilter(selectEl, records, selected = "", extraTopics = []) {
   if (!selectEl) return;
   const selectedValue = String(selected || "").trim();
-  const topics = [...new Set((records || []).map((r) => String(r?.problems?.topic || "").trim()).filter(Boolean))].sort((a, b) =>
-    a.localeCompare(b)
-  );
+  const topics = [
+    ...new Set([
+      ...(records || []).map((r) => String(r?.problems?.topic || "").trim()).filter(Boolean),
+      ...(extraTopics || []).map((topic) => String(topic || "").trim()).filter(Boolean)
+    ])
+  ].sort((a, b) => a.localeCompare(b));
   selectEl.innerHTML = `<option value="">All Topics</option>${topics
     .map((topic) => `<option value="${escapeHtml(topic)}" ${topic === selectedValue ? "selected" : ""}>${escapeHtml(topic)}</option>`)
     .join("")}`;
@@ -2474,6 +3047,7 @@ function populateTopicFilter(selectEl, records, selected = "") {
 function filterReviewRecords(records, filters = {}) {
   const lv = String(filters.difficulty || "").trim();
   const topic = String(filters.topic || "").trim();
+  const subType = String(filters.sub_type || "").trim();
   const result = String(filters.result || "").trim();
   const date = String(filters.date || "").trim();
 
@@ -2481,6 +3055,7 @@ function filterReviewRecords(records, filters = {}) {
     const q = row.problems || {};
     if (lv && String(q.difficulty || "") !== lv) return false;
     if (topic && String(q.topic || "") !== topic) return false;
+    if (subType && String(q.sub_type || "") !== subType) return false;
     if (result === "correct" && row.is_correct !== true) return false;
     if (result === "wrong" && row.is_correct !== false) return false;
     if (date && String(row.assignment_date || "") !== date) return false;
@@ -2709,6 +3284,8 @@ async function showTeacherStudentTopicStatus(topic, topics) {
 async function showTeacherAnsweredQuestionsForSubtopic(topic, subType, difficulty = "") {
   if (!alertWrongDialog || !alertWrongBody) return;
   const student = teacherStudentViewData?.student || {};
+  teacherStatusReturnContext = { topic, topics: teacherStudentViewData?.progressTopics || [] };
+  if (alertWrongBackBtn) alertWrongBackBtn.hidden = false;
   const records = (teacherStudentViewData?.records || []).filter((row) => {
     const p = row.problems || {};
     return (
@@ -2769,6 +3346,162 @@ function studentStatusColourClass(status) {
   return "status-red";
 }
 
+function studentStatusDisplay(status) {
+  const s = String(status || "").toUpperCase();
+  if (s === "MASTERED") return "Mastered";
+  if (s === "KNOWN" || s === "BACKFILL") return "On track";
+  return "Needs work";
+}
+
+function uniqueSortedValues(rows, key) {
+  return [...new Set((rows || []).map((row) => String(row?.[key] || "").trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b)
+  );
+}
+
+function studentLearningStatusSortValue(row, key) {
+  if (key === "status") return studentStatusDisplay(row.status);
+  return String(row?.[key] || "");
+}
+
+async function showStudentAnsweredQuestionsForSubtopic(topic, subType, difficulty = "") {
+  studentStatusReturnContext = { topic };
+  if (studentReviewBackBtn) studentReviewBackBtn.hidden = false;
+  let records = filterReviewRecords(latestStudentReviewRecords, {
+    topic,
+    sub_type: subType
+  });
+  if (!records.length && subType) {
+    records = filterReviewRecords(latestStudentReviewRecords, { sub_type: subType });
+  }
+  if (statusDetailDialog?.open) statusDetailDialog.close();
+  switchProfileTab("review");
+  renderReviewRecords(records, studentReviewList);
+  populateTopicFilter(reviewFilterTopic, latestStudentReviewRecords, topic, latestStudentProgressTopics.map((row) => row.topic));
+  if (reviewFilterTopic) reviewFilterTopic.value = topic || "";
+  if (reviewFilterLv) reviewFilterLv.value = "";
+  const message = records.length
+    ? `Showing ${records.length} answered question(s) for ${subType || "this sub-topic"}.`
+    : `${subType || "This sub-topic"} is in the learning plan, but no answered question is saved under it yet.`;
+  setMessage(studentMessage, message, records.length ? "success" : "error");
+  await typeset(studentReviewList);
+}
+
+function renderStudentLearningStatusTable(topics) {
+  if (!studentLearningStatusTable) return;
+  const rows = (Array.isArray(topics) ? topics : [])
+    .flatMap((topic) =>
+      (Array.isArray(topic.subtopics) ? topic.subtopics : []).map((row) => ({
+        topic: String(topic.topic || ""),
+        sub_type: String(row.sub_type || ""),
+        difficulty: String(row.difficulty || ""),
+        status: String(row.status || "")
+      }))
+    )
+    .filter((row) => row.sub_type || row.difficulty || row.status);
+  if (!rows.length) {
+    studentLearningStatusTable.innerHTML = `<p class="hint">No learning status recorded yet.</p>`;
+    return;
+  }
+  const filterOptions = {
+    topic: uniqueSortedValues(rows, "topic"),
+    sub_type: uniqueSortedValues(rows, "sub_type"),
+    difficulty: uniqueSortedValues(rows, "difficulty"),
+    status: uniqueSortedValues(rows.map((row) => ({ status: studentStatusDisplay(row.status) })), "status")
+  };
+  const activeFilters = {
+    topic: String(studentLearningStatusFilters.topic || ""),
+    sub_type: String(studentLearningStatusFilters.sub_type || ""),
+    difficulty: String(studentLearningStatusFilters.difficulty || ""),
+    status: String(studentLearningStatusFilters.status || "")
+  };
+  const filteredRows = rows.filter((row) => {
+    if (activeFilters.topic && row.topic !== activeFilters.topic) return false;
+    if (activeFilters.sub_type && row.sub_type !== activeFilters.sub_type) return false;
+    if (activeFilters.difficulty && row.difficulty !== activeFilters.difficulty) return false;
+    if (activeFilters.status && studentStatusDisplay(row.status) !== activeFilters.status) return false;
+    return true;
+  });
+  const sort = studentLearningStatusSort || { key: "topic", dir: "asc" };
+  const dir = sort.dir === "desc" ? -1 : 1;
+  const sortMark = (key) => (sort.key === key ? (sort.dir === "asc" ? " ↑" : " ↓") : "");
+  const sortButton = (key, label) =>
+    `<button type="button" class="table-sort-btn" data-student-status-sort="${escapeHtml(key)}">${escapeHtml(label)}${sortMark(key)}</button>`;
+  const filterSelect = (key, options) => `
+    <select class="table-filter-input" data-student-status-filter="${escapeHtml(key)}">
+      <option value="">All</option>
+      ${options
+        .map((option) => `<option value="${escapeHtml(option)}" ${activeFilters[key] === option ? "selected" : ""}>${escapeHtml(option)}</option>`)
+        .join("")}
+    </select>
+  `;
+  filteredRows.sort((a, b) => {
+    if (sort.key === "difficulty") {
+      const aIdx = difficultyOrder.indexOf(a.difficulty);
+      const bIdx = difficultyOrder.indexOf(b.difficulty);
+      const cmp = (aIdx < 0 ? 999 : aIdx) - (bIdx < 0 ? 999 : bIdx);
+      if (cmp) return cmp * dir;
+    }
+    const av = studentLearningStatusSortValue(a, sort.key);
+    const bv = studentLearningStatusSortValue(b, sort.key);
+    return av.localeCompare(bv) * dir;
+  });
+  studentLearningStatusTable.innerHTML = `
+    <table class="learning-status-table">
+      <thead>
+        <tr>
+          <th>${sortButton("topic", "Topic")}</th>
+          <th>${sortButton("sub_type", "Sub-topic")}</th>
+          <th>${sortButton("difficulty", "Level")}</th>
+          <th>${sortButton("status", "Status")}</th>
+        </tr>
+        <tr>
+          <th>${filterSelect("topic", filterOptions.topic)}</th>
+          <th>${filterSelect("sub_type", filterOptions.sub_type)}</th>
+          <th>${filterSelect("difficulty", filterOptions.difficulty)}</th>
+          <th>${filterSelect("status", filterOptions.status)}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filteredRows
+          .map(
+            (row) => `
+              <tr>
+                <td>${escapeHtml(row.topic || "-")}</td>
+                <td><button type="button" class="link-button" data-student-status-subtopic="${escapeHtml(row.sub_type)}" data-student-status-topic="${escapeHtml(row.topic)}" data-student-status-level="${escapeHtml(row.difficulty)}">${escapeHtml(row.sub_type || "-")}</button></td>
+                <td>${escapeHtml(row.difficulty || "-")}</td>
+                <td><span class="learning-status-badge ${studentStatusColourClass(row.status)}">${escapeHtml(studentStatusDisplay(row.status))}</span></td>
+              </tr>
+            `
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+  studentLearningStatusTable.querySelectorAll("[data-student-status-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = String(btn.getAttribute("data-student-status-sort") || "topic");
+      if (studentLearningStatusSort.key === key) studentLearningStatusSort.dir = studentLearningStatusSort.dir === "asc" ? "desc" : "asc";
+      else studentLearningStatusSort = { key, dir: "asc" };
+      renderStudentLearningStatusTable(latestStudentProgressTopics);
+    });
+  });
+  studentLearningStatusTable.querySelectorAll("[data-student-status-filter]").forEach((select) => {
+    select.addEventListener("change", () => {
+      studentLearningStatusFilters[String(select.getAttribute("data-student-status-filter") || "")] = select.value;
+      renderStudentLearningStatusTable(latestStudentProgressTopics);
+    });
+  });
+  studentLearningStatusTable.querySelectorAll("[data-student-status-subtopic]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await showStudentAnsweredQuestionsForSubtopic(
+        String(btn.getAttribute("data-student-status-topic") || ""),
+        String(btn.getAttribute("data-student-status-subtopic") || "")
+      );
+    });
+  });
+}
+
 function teacherStatusNote(status) {
   const s = String(status || "").toUpperCase();
   const notes = {
@@ -2787,32 +3520,57 @@ function showStudentTopicStatus(topic) {
   if (statusDetailTitle) statusDetailTitle.textContent = topic || "Learning Status";
   const rows = entry?.subtopics || [];
   statusDetailBody.innerHTML = rows.length
-    ? rows
-        .map(
-          (row) => `
-        <div class="stat">
-          <strong class="status-colour-pill ${studentStatusColourClass(row.status)}">${studentStatusSymbol(row.status)}</strong>
-          ${escapeHtml(row.difficulty || "-")} / ${escapeHtml(row.sub_type || "-")}
-          <span class="badge">${escapeHtml(studentStatusLabel(row.status))}</span>
-        </div>
-      `
-        )
-        .join("")
+    ? `
+      <table class="learning-status-table">
+        <thead>
+          <tr>
+            <th>Sub-topic</th>
+            <th>Level</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows
+            .map(
+              (row) => `
+                <tr>
+                  <td><button type="button" class="link-button" data-student-popup-subtopic="${escapeHtml(row.sub_type || "")}" data-student-popup-topic="${escapeHtml(topic || "")}" data-student-popup-level="${escapeHtml(row.difficulty || "")}">${escapeHtml(row.sub_type || "-")}</button></td>
+                  <td>${escapeHtml(row.difficulty || "-")}</td>
+                  <td><span class="learning-status-badge ${studentStatusColourClass(row.status)}">${escapeHtml(studentStatusDisplay(row.status))}</span></td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    `
     : "<p>No learning status recorded for this topic yet.</p>";
+  statusDetailBody.querySelectorAll("[data-student-popup-subtopic]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      await showStudentAnsweredQuestionsForSubtopic(
+        String(btn.getAttribute("data-student-popup-topic") || ""),
+        String(btn.getAttribute("data-student-popup-subtopic") || "")
+      );
+    });
+  });
   if (typeof statusDetailDialog.showModal === "function") statusDetailDialog.showModal();
   else statusDetailDialog.setAttribute("open", "open");
 }
 
 async function loadStudentReview() {
   if (!studentReviewList) return;
+  studentStatusReturnContext = null;
+  if (studentReviewBackBtn) studentReviewBackBtn.hidden = true;
   const [data, progressData] = await Promise.all([
     api("/api/student/review"),
     api("/api/student/progress").catch(() => ({ topics: [] }))
   ]);
   const allRecords = Array.isArray(data.records) ? data.records : [];
+  latestStudentReviewRecords = allRecords;
   latestStudentProgressTopics = Array.isArray(progressData.topics) ? progressData.topics : [];
+  renderStudentLearningStatusTable(latestStudentProgressTopics);
   renderTopicLevelMatrix(studentTopicLvMatrix, allRecords, difficultyOrder);
-  populateTopicFilter(reviewFilterTopic, allRecords, reviewFilterTopic?.value || "");
+  populateTopicFilter(reviewFilterTopic, allRecords, reviewFilterTopic?.value || "", latestStudentProgressTopics.map((row) => row.topic));
   const filtered = filterReviewRecords(allRecords, {
     difficulty: reviewFilterLv?.value,
     topic: reviewFilterTopic?.value,
@@ -3229,39 +3987,184 @@ async function renderClassGroupTab(tab) {
     return;
   }
   if (tab === "scope") {
-    classGroupDetailBody.innerHTML = `<p class="hint">Use the Class Scope or Group Scope quick-edit panels below this dialog to edit scope for now.</p>`;
+    classGroupDetailBody.innerHTML = `
+      <h4>${kind === "class" ? "Class" : "Group"} Scope</h4>
+      <p class="hint">A student's questions must be inside the intersection of the class scope and every group scope they belong to.</p>
+      <div class="inline-tools">
+        <select id="modal-scope-min-difficulty">
+          <option value="">Min Lv</option>
+          ${difficultyOrder.map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("")}
+        </select>
+        <select id="modal-scope-max-difficulty">
+          <option value="">Max Lv</option>
+          ${difficultyOrder.map((x) => `<option value="${escapeHtml(x)}">${escapeHtml(x)}</option>`).join("")}
+        </select>
+        <select id="modal-scope-topics" multiple size="6" aria-label="Select scope topics">
+          ${
+            allScopeTopics.length
+              ? allScopeTopics.map((topic) => `<option value="${escapeHtml(topic)}">${escapeHtml(topic)}</option>`).join("")
+              : `<option value="" disabled>No topics available</option>`
+          }
+        </select>
+        <input id="modal-scope-subtype" type="text" placeholder="Sub-topic (optional)" />
+        <button type="button" id="modal-scope-add-btn">Add Scope</button>
+      </div>
+      <div id="modal-scope-list" class="summary"></div>
+      <button type="button" id="modal-scope-save-btn">Save Scope</button>
+    `;
+    const getDraft = () => (kind === "class" ? classScopeDraft : groupScopeDraft);
+    const setDraft = (rows) => {
+      if (kind === "class") classScopeDraft = rows;
+      else groupScopeDraft = rows;
+    };
+    const scopeList = classGroupDetailBody.querySelector("#modal-scope-list");
+    const renderModalScopeDraft = () => {
+      const draft = getDraft();
+      if (!scopeList) return;
+      if (!draft.length) {
+        scopeList.innerHTML = "<p>No scope rules. All topics are allowed.</p>";
+        return;
+      }
+      scopeList.innerHTML = draft
+        .map(
+          (row, idx) => `
+            <span class="stat">
+              <strong>${escapeHtml(row.min_difficulty || "lv2")} - ${escapeHtml(row.max_difficulty || row.difficulty || "-")}</strong>
+              ${escapeHtml(row.topic || "-")}
+              ${row.sub_type ? ` / ${escapeHtml(row.sub_type)}` : ""}
+              <button type="button" class="secondary" data-modal-scope-remove="${idx}">Remove</button>
+            </span>
+          `
+        )
+        .join("");
+      scopeList.querySelectorAll("button[data-modal-scope-remove]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const idx = Number(btn.getAttribute("data-modal-scope-remove"));
+          const next = getDraft().slice();
+          if (!Number.isInteger(idx) || idx < 0 || idx >= next.length) return;
+          next.splice(idx, 1);
+          setDraft(next);
+          renderModalScopeDraft();
+        });
+      });
+    };
+    try {
+      const data =
+        kind === "class"
+          ? await api(`/api/teacher/classes/${encodeURIComponent(name)}/scope`)
+          : await api(`/api/teacher/groups/${encodeURIComponent(id)}/scope`);
+      setDraft(Array.isArray(data.scope_rules) ? data.scope_rules.map((row) => normalizeScopeRow(row)) : []);
+    } catch (error) {
+      setMessage(teacherGroupMessage || teacherMessage, error.message || "Failed to load scope.", "error");
+      setDraft([]);
+    }
+    renderModalScopeDraft();
+    classGroupDetailBody.querySelector("#modal-scope-add-btn")?.addEventListener("click", () => {
+      const minDifficulty = String(classGroupDetailBody.querySelector("#modal-scope-min-difficulty")?.value || "").trim();
+      const maxDifficulty = String(classGroupDetailBody.querySelector("#modal-scope-max-difficulty")?.value || "").trim();
+      const topics = getSelectedValues(classGroupDetailBody.querySelector("#modal-scope-topics"));
+      const subType = String(classGroupDetailBody.querySelector("#modal-scope-subtype")?.value || "").trim();
+      const next = getDraft().slice();
+      const result = addScopeRowsToDraft(next, minDifficulty, maxDifficulty, topics, subType);
+      if (!result.ok) {
+        setMessage(teacherGroupMessage || teacherMessage, result.message || "Invalid scope.", "error");
+        return;
+      }
+      setDraft(next);
+      classGroupDetailBody.querySelector("#modal-scope-subtype").value = "";
+      classGroupDetailBody.querySelectorAll("#modal-scope-topics option").forEach((option) => {
+        option.selected = false;
+      });
+      renderModalScopeDraft();
+      setMessage(teacherGroupMessage || teacherMessage, "Scope item added. Click Save Scope to apply.", "success");
+    });
+    classGroupDetailBody.querySelector("#modal-scope-save-btn")?.addEventListener("click", async () => {
+      try {
+        const payload = getDraft()
+          .map((row) => normalizeScopeRow(row))
+          .filter((row) => row.max_difficulty && row.topic);
+        if (kind === "class") {
+          await api(`/api/teacher/classes/${encodeURIComponent(name)}/scope`, {
+            method: "PUT",
+            body: JSON.stringify({ scopes: payload })
+          });
+        } else {
+          await api(`/api/teacher/groups/${encodeURIComponent(id)}/scope`, {
+            method: "PUT",
+            body: JSON.stringify({ scopes: payload })
+          });
+          await loadTeacherGroups();
+        }
+        setMessage(teacherGroupMessage || teacherMessage, "Scope saved.", "success");
+      } catch (error) {
+        setMessage(teacherGroupMessage || teacherMessage, error.message || "Failed to save scope.", "error");
+      }
+    });
     return;
   }
   if (tab === "status") {
+    classGroupStatusFilters.student = "";
+    classGroupStatusFilters.class_name = "";
+    classGroupStatusFilters.status = "";
+    classGroupStatusSort = { key: "student", dir: "asc" };
     classGroupDetailBody.innerHTML = `
       <div class="inline-tools">
-        <input id="modal-status-topic" type="text" placeholder="Topic" />
-        <input id="modal-status-subtype" type="text" placeholder="Sub-topic" />
+        <select id="modal-status-topic" aria-label="Topic">
+          <option value="">All topics</option>
+          ${allScopeTopics.map((topic) => `<option value="${escapeHtml(topic)}">${escapeHtml(topic)}</option>`).join("")}
+        </select>
+        <select id="modal-status-subtype" aria-label="Sub-topic">
+          <option value="">All sub-topics</option>
+        </select>
         <button type="button" id="modal-load-status-btn">Load Status</button>
       </div>
       <div id="modal-status-table" class="table-wrap"></div>
     `;
+    const topicSelect = classGroupDetailBody.querySelector("#modal-status-topic");
+    const subTypeSelect = classGroupDetailBody.querySelector("#modal-status-subtype");
+    const loadSubtopics = async () => {
+      const topic = String(topicSelect?.value || "").trim();
+      if (!subTypeSelect) return;
+      subTypeSelect.innerHTML = `<option value="">All sub-topics</option>`;
+      if (!topic) return;
+      try {
+        const data = await api(`/api/teacher/question-bank/subtopics?topic=${encodeURIComponent(topic)}`);
+        const rows = Array.isArray(data.subtopics) ? data.subtopics : [];
+        const subtypes = [...new Set(rows.map((row) => String(row.sub_type || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
+        subTypeSelect.innerHTML = `<option value="">All sub-topics</option>${subtypes
+          .map((subtype) => `<option value="${escapeHtml(subtype)}">${escapeHtml(subtype)}</option>`)
+          .join("")}`;
+      } catch (error) {
+        subTypeSelect.innerHTML = `<option value="">Failed to load sub-topics</option>`;
+        setMessage(teacherGroupMessage || teacherMessage, error.message || "Failed to load sub-topics.", "error");
+      }
+    };
+    topicSelect?.addEventListener("change", loadSubtopics);
     classGroupDetailBody.querySelector("#modal-load-status-btn")?.addEventListener("click", async () => {
       const params = new URLSearchParams();
-      if (kind === "class") params.set("class_name", name);
-      const topic = classGroupDetailBody.querySelector("#modal-status-topic")?.value.trim();
-      const subType = classGroupDetailBody.querySelector("#modal-status-subtype")?.value.trim();
+      const topic = String(topicSelect?.value || "").trim();
+      const subType = String(subTypeSelect?.value || "").trim();
+      if (!subType) {
+        const target = classGroupDetailBody.querySelector("#modal-status-table");
+        if (target) target.innerHTML = "<p>Please choose a sub-topic first to see the class/group status.</p>";
+        return;
+      }
       if (topic) params.set("topic", topic);
       if (subType) params.set("sub_type", subType);
       const data = await api(`/api/teacher/progress${params.toString() ? `?${params}` : ""}`);
       const target = classGroupDetailBody.querySelector("#modal-status-table");
-      const allowedIds =
-        kind === "group"
-          ? new Set((latestTeacherGroups.find((g) => String(g.id) === id)?.members || []).map((x) => String(x)))
-          : null;
-      const rows = (data.students || [])
-        .filter((s) => !allowedIds || allowedIds.has(String(s.user_id || "")))
-        .map((s) => {
-          const flat = (s.topics || []).flatMap((t) => t.subtopics || []);
-          return `<tr><td>${escapeHtml(s.full_name || "-")}</td><td>${escapeHtml(s.class_name || "-")}</td><td>${flat.map((r) => `${escapeHtml(r.sub_type)}: ${escapeHtml(r.status)}`).join("<br>") || "-"}</td></tr>`;
-        })
-        .join("");
-      if (target) target.innerHTML = `<table><thead><tr><th>Student</th><th>Class</th><th>Status</th></tr></thead><tbody>${rows}</tbody></table>`;
+      const progressByStudentId = new Map((data.students || []).map((s) => [String(s.user_id || ""), s]));
+      const rows = students.map((student) => {
+        const progressStudent = progressByStudentId.get(String(student.student_id || student.user_id || "")) || {};
+        const flat = (progressStudent.topics || []).flatMap((t) => t.subtopics || []);
+        const statusRow = flat.find((r) => String(r.sub_type || "") === subType) || flat[0] || null;
+        return {
+          student: String(student.full_name || progressStudent.full_name || "-"),
+          class_name: String(student.class_name || progressStudent.class_name || "-"),
+          status: statusRow ? String(statusRow.status || "-") : "-"
+        };
+      });
+      renderClassGroupStatusTable(target, rows);
     });
     return;
   }
@@ -3272,6 +4175,87 @@ async function renderClassGroupTab(tab) {
     </div>
     <p class="hint">Topic x Level stat uses the student table data currently loaded in the dashboard.</p>
   `;
+}
+
+function renderClassGroupStatusTable(target, rows) {
+  if (!target) return;
+  const tableRows = Array.isArray(rows) ? rows : [];
+  if (!tableRows.length) {
+    target.innerHTML = "<p>No matching student status found.</p>";
+    return;
+  }
+  const columns = [
+    ["student", "Student"],
+    ["class_name", "Class"],
+    ["status", "Status"]
+  ];
+  const optionHtmlFor = (key) => {
+    const values = [...new Set(tableRows.map((row) => String(row[key] || "").trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, undefined, { numeric: true })
+    );
+    return `<option value="">All</option>${values
+      .map((value) => `<option value="${escapeHtml(value)}" ${String(classGroupStatusFilters[key] || "") === value ? "selected" : ""}>${escapeHtml(value)}</option>`)
+      .join("")}`;
+  };
+  const filtered = tableRows.filter((row) =>
+    columns.every(([key]) => {
+      const filterValue = String(classGroupStatusFilters[key] || "").trim();
+      if (!filterValue) return true;
+      return String(row[key] || "").trim() === filterValue;
+    })
+  );
+  const sorted = [...filtered].sort((a, b) => {
+    const av = String(a[classGroupStatusSort.key] || "");
+    const bv = String(b[classGroupStatusSort.key] || "");
+    const cmp = av.localeCompare(bv, undefined, { numeric: true });
+    return classGroupStatusSort.dir === "desc" ? -cmp : cmp;
+  });
+  target.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          ${columns
+            .map(
+              ([key, label]) =>
+                `<th><button type="button" class="table-sort-btn" data-modal-status-sort="${key}">${escapeHtml(label)}${
+                  classGroupStatusSort.key === key ? (classGroupStatusSort.dir === "asc" ? " ↑" : " ↓") : ""
+                }</button></th>`
+            )
+            .join("")}
+        </tr>
+        <tr>
+          ${columns.map(([key]) => `<th><select class="table-filter-input" data-modal-status-filter="${key}">${optionHtmlFor(key)}</select></th>`).join("")}
+        </tr>
+      </thead>
+      <tbody>
+        ${sorted
+          .map(
+            (row) => `
+              <tr>
+                <td>${escapeHtml(row.student)}</td>
+                <td>${escapeHtml(row.class_name)}</td>
+                <td>${escapeHtml(row.status).replace(/\n/g, "<br>")}</td>
+              </tr>
+            `
+          )
+          .join("")}
+      </tbody>
+    </table>
+  `;
+  target.querySelectorAll("button[data-modal-status-sort]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const key = String(btn.getAttribute("data-modal-status-sort") || "");
+      if (classGroupStatusSort.key === key) classGroupStatusSort.dir = classGroupStatusSort.dir === "asc" ? "desc" : "asc";
+      else classGroupStatusSort = { key, dir: "asc" };
+      renderClassGroupStatusTable(target, tableRows);
+    });
+  });
+  target.querySelectorAll("select[data-modal-status-filter]").forEach((select) => {
+    select.addEventListener("change", () => {
+      classGroupStatusFilters[String(select.getAttribute("data-modal-status-filter") || "")] = select.value;
+      renderClassGroupStatusTable(target, tableRows);
+    });
+  });
 }
 
 function itemValueForClassGroup(kind, id, key) {
@@ -3392,10 +4376,14 @@ function renderClassGroupStudentPicker(kind, id, name) {
       return;
     }
     if (kind === "class") {
-      await api("/api/teacher/students/class", {
+      const result = await api("/api/teacher/students/class", {
         method: "PUT",
         body: JSON.stringify({ student_ids: studentIds, class_name: name })
       });
+      if (Number(result.updated || 0) !== studentIds.length) {
+        setMessage(teacherGroupMessage || teacherMessage, "Class was not saved for every selected student. Please refresh and try again.", "error");
+        return;
+      }
     } else {
       await api(`/api/teacher/groups/${encodeURIComponent(id)}/add-students`, {
         method: "POST",
@@ -3406,6 +4394,7 @@ function renderClassGroupStudentPicker(kind, id, name) {
     await loadTeacherOverview();
     await loadTeacherGroups();
     await renderClassGroupTab("students");
+    setMessage(teacherGroupMessage || teacherMessage, kind === "class" ? "Class saved to selected student(s)." : "Student(s) added to group.", "success");
   });
 }
 
@@ -3439,7 +4428,7 @@ async function loadTeacherAlerts() {
           <tbody>${renderRows(active)}</tbody>
         </table>
       </div>
-      <h4>Archived Alerts</h4>
+      <div class="section-title-row"><h4>Archived Alerts</h4></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Student</th><th>Class</th><th>Sub-topic</th><th>Topic</th><th>Wrong answers</th><th>Status</th></tr></thead>
@@ -3474,6 +4463,8 @@ async function loadTeacherAlerts() {
 
 async function showAlertWrongAnswers(alertId) {
   if (!alertWrongDialog || !alertWrongBody || !alertId) return;
+  teacherStatusReturnContext = null;
+  if (alertWrongBackBtn) alertWrongBackBtn.hidden = true;
   const data = await api(`/api/teacher/alerts/${encodeURIComponent(alertId)}/wrong-answers`);
   const alert = data.alert || {};
   const profile = alert.user_profiles || {};
@@ -3488,6 +4479,8 @@ async function showAlertWrongAnswers(alertId) {
               <div class="question-head"><strong>${escapeHtml(row.assignment_date || "-")}</strong></div>
               <div class="question-body" id="alert-wrong-q-${escapeHtml(row.id)}"></div>
               <div class="summary">
+                <div class="stat"><strong>Answered at:</strong> ${escapeHtml(formatDateTime(row.submitted_at || row.assignment_date || "-"))}</div>
+                <div class="stat"><strong>Answer time:</strong> ${formatSeconds(row.time_spent_seconds)}</div>
                 <div class="stat"><strong>Student answer:</strong> ${escapeHtml(row.answer_text || "-")}</div>
                 <div class="stat"><strong>Correct answer:</strong> ${escapeHtml(q.answer_text || "-")}</div>
               </div>
@@ -3688,6 +4681,8 @@ function showTeacherAlertPage() {
 }
 
 function showTeacherStudentPage() {
+  saveTeacherPagePreference("student_profile");
+  currentTeacherPage = "student_profile";
   if (teacherView) teacherView.hidden = true;
   if (teacherBatchPage) teacherBatchPage.hidden = true;
   if (teacherGroupPage) teacherGroupPage.hidden = true;
@@ -3727,6 +4722,7 @@ async function applyTeacherStudentFilters() {
 }
 
 async function openTeacherStudentPage(studentId) {
+  saveTeacherProfileStudentId(studentId);
   const [statsData, groupsData, allGroups, progressData] = await Promise.all([
     api(`/api/teacher/students/${encodeURIComponent(studentId)}/stats`),
     api(`/api/teacher/students/${encodeURIComponent(studentId)}/groups`),
@@ -3745,22 +4741,9 @@ async function openTeacherStudentPage(studentId) {
     teacherStudentPageTitle.textContent = `Student Profile: ${student.full_name || "Student"}`;
   }
   if (teacherStudentPageStats) {
-    const titles = Array.isArray(statsData.class_titles) ? statsData.class_titles : [];
-    teacherStudentPageStats.innerHTML = `
-      <div class="stat"><strong>Class:</strong> ${escapeHtml(student.class_name || "-")}</div>
-      <div class="stat"><strong>Done:</strong> ${stats.questions_done || 0}</div>
-      <div class="stat"><strong>Correct:</strong> ${stats.correct_percentage || 0}%</div>
-      <div class="stat"><strong>Avg Time:</strong> ${formatSeconds(stats.average_time_seconds || 0)}</div>
-    `;
+    teacherStudentPageStats.innerHTML = "";
     if (teacherStudentClassTitles) {
-      teacherStudentClassTitles.innerHTML = titles
-          .map(
-            (t) =>
-              `<div class="stat"><strong>${escapeHtml(String(t.aspect_name || "Aspect"))}:</strong> ${escapeHtml(
-                String(t.title || "-")
-              )} · ${escapeHtml(String(t.student_name || "-"))}</div>`
-          )
-          .join("");
+      teacherStudentClassTitles.innerHTML = "";
     }
     renderRadarChart(teacherStudentRadarWrap, statsData, { student: "Student", classAvg: "Class Avg" });
   }
@@ -3845,13 +4828,8 @@ async function initInternal() {
     clientConfig = await api("/api/client-config");
     const meta = await api("/api/meta");
     supabase = createClient(clientConfig.supabase_url, clientConfig.supabase_anon_key);
-    if (clientConfig.school_domain) {
-      schoolNote.textContent = `Use your school account: @${clientConfig.school_domain}`;
-    } else {
-      schoolNote.textContent = "School domain restriction is not configured yet.";
-    }
-    if (clientConfig.google_client_id) {
-      schoolNote.textContent += " Browser Google-account matching is enabled for login.";
+    if (signupForm) {
+      signupForm.hidden = clientConfig.signup_disabled !== false;
     }
     if (reviewFilterLv) {
       const difficulties = Array.isArray(meta.difficulties) ? meta.difficulties : [];
@@ -3916,6 +4894,416 @@ async function ensureSupabaseReady() {
   return false;
 }
 
+function parseAdminAccountBatch(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith("#"))
+    .map((line) => {
+      const parts = line.split(/\t|,/).map((part) => part.trim());
+      return {
+        role: parts[0] || "student",
+        email: parts[1] || "",
+        password: parts[2] || "",
+        full_name: parts[3] || "",
+        class_name: parts[4] || ""
+      };
+    });
+}
+
+function renderAdminAccountResults(results) {
+  if (!adminAccountResults) return;
+  const rows = Array.isArray(results) ? results : [];
+  if (!rows.length) {
+    adminAccountResults.innerHTML = "";
+    return;
+  }
+  adminAccountResults.innerHTML = `
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Class</th>
+          <th>Status</th>
+          <th>Message</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows
+          .map(
+            (row) => `
+              <tr class="${row.ok ? "resolved-row" : "alert-row"}">
+                <td>${escapeHtml(row.email || "")}</td>
+                <td>${escapeHtml(row.role || "")}</td>
+                <td>${escapeHtml(row.class_name || "")}</td>
+                <td>${row.ok ? "Created" : "Failed"}</td>
+                <td>${escapeHtml(row.error || row.user_id || "")}</td>
+              </tr>`
+          )
+          .join("")}
+      </tbody>
+    </table>`;
+}
+
+function renderAdminAccounts(accounts) {
+  if (!adminAccountListWrap) return;
+  latestAdminAccounts = Array.isArray(accounts) ? accounts : latestAdminAccounts;
+  const rows = latestAdminAccounts.filter(adminAccountMatchesFilters);
+  const roleFilterOptions = ["", "student", "teacher", "admin"]
+    .map((role) => `<option value="${role}" ${adminAccountFilters.role === role ? "selected" : ""}>${role || "All"}</option>`)
+    .join("");
+  const adminFilterSelectOptions = (field) => {
+    const values = [...new Set(latestAdminAccounts.map((account) => String(account?.[field] || "").trim()).filter(Boolean))].sort((a, b) =>
+      a.localeCompare(b, "en", { numeric: true, sensitivity: "base" })
+    );
+    return `<option value="">All</option>${values
+      .map((value) => `<option value="${escapeHtml(value)}" ${adminAccountFilters[field] === value ? "selected" : ""}>${escapeHtml(value)}</option>`)
+      .join("")}`;
+  };
+  adminAccountListWrap.innerHTML = `
+    <table class="matrix-table admin-account-table">
+      <thead>
+        <tr>
+          <th>Select<br /><label class="inline-check"><input id="admin-account-select-all" type="checkbox" />All</label></th>
+          <th>Name</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Grade</th>
+          <th>Class</th>
+          <th>Action</th>
+        </tr>
+        <tr>
+          <th></th>
+          <th><input class="table-filter-input admin-account-filter" data-admin-account-filter="full_name" value="${escapeHtml(adminAccountFilters.full_name)}" placeholder="Filter" /></th>
+          <th><input class="table-filter-input admin-account-filter" data-admin-account-filter="email" value="${escapeHtml(adminAccountFilters.email)}" placeholder="Filter" /></th>
+          <th><select class="table-filter-input admin-account-filter" data-admin-account-filter="role">${roleFilterOptions}</select></th>
+          <th><select class="table-filter-input admin-account-filter" data-admin-account-filter="grade">${adminFilterSelectOptions("grade")}</select></th>
+          <th><select class="table-filter-input admin-account-filter" data-admin-account-filter="class_name">${adminFilterSelectOptions("class_name")}</select></th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${
+          rows.length
+            ? rows
+                .map((account) => {
+                  const userId = String(account.user_id || "");
+                  const isSelf = userId && String(me?.user_id || "") === userId;
+                  return `
+              <tr data-admin-account-row="${escapeHtml(userId)}">
+                <td><input type="checkbox" class="admin-account-select" data-admin-account-select="${escapeHtml(userId)}" ${isSelf ? "disabled" : ""} /></td>
+                <td><input class="table-filter-input" data-admin-account-field="full_name" value="${escapeHtml(account.full_name || "")}" /></td>
+                <td>${escapeHtml(account.email || "-")}</td>
+                <td>
+                  <select class="table-filter-input" data-admin-account-field="role">
+                    ${["student", "teacher", "admin"].map((role) => `<option value="${role}" ${account.role === role ? "selected" : ""}>${role}</option>`).join("")}
+                  </select>
+                </td>
+                <td><input class="table-filter-input" data-admin-account-field="grade" value="${escapeHtml(account.grade || "")}" /></td>
+                <td><input class="table-filter-input" data-admin-account-field="class_name" value="${escapeHtml(account.class_name || "")}" /></td>
+                <td>
+                  <input class="table-filter-input admin-row-password" type="password" data-admin-account-field="password" placeholder="New password" />
+                  <button type="button" data-admin-save-account="${escapeHtml(userId)}">Save</button>
+                  <button type="button" class="secondary" data-admin-delete-account="${escapeHtml(userId)}" ${isSelf ? "disabled" : ""}>
+                    Delete
+                  </button>
+                </td>
+              </tr>`;
+                })
+                .join("")
+            : `<tr><td colspan="7" class="hint">No accounts match the current filters.</td></tr>`
+        }
+      </tbody>
+    </table>`;
+
+  const selectAll = adminAccountListWrap.querySelector("#admin-account-select-all");
+  if (selectAll) {
+    selectAll.addEventListener("change", () => {
+      adminAccountListWrap.querySelectorAll(".admin-account-select:not(:disabled)").forEach((input) => {
+        input.checked = selectAll.checked;
+      });
+    });
+  }
+
+  adminAccountListWrap.querySelectorAll(".admin-account-filter").forEach((input) => {
+    input.addEventListener("input", () => {
+      const field = input.getAttribute("data-admin-account-filter");
+      if (!field) return;
+      adminAccountFilters[field] = input.value || "";
+      renderAdminAccounts(latestAdminAccounts);
+    });
+    input.addEventListener("change", () => {
+      const field = input.getAttribute("data-admin-account-filter");
+      if (!field) return;
+      adminAccountFilters[field] = input.value || "";
+      renderAdminAccounts(latestAdminAccounts);
+    });
+  });
+
+  adminAccountListWrap.querySelectorAll("[data-admin-save-account]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const userId = String(btn.getAttribute("data-admin-save-account") || "");
+      const rowEl = adminAccountListWrap.querySelector(`[data-admin-account-row="${cssEscape(userId)}"]`);
+      if (!userId || !rowEl) return;
+      const payload = {
+        full_name: rowEl.querySelector('[data-admin-account-field="full_name"]')?.value || "",
+        role: rowEl.querySelector('[data-admin-account-field="role"]')?.value || "",
+        grade: rowEl.querySelector('[data-admin-account-field="grade"]')?.value || "",
+        class_name: rowEl.querySelector('[data-admin-account-field="class_name"]')?.value || "",
+        password: rowEl.querySelector('[data-admin-account-field="password"]')?.value || ""
+      };
+      btn.disabled = true;
+      setMessage(adminAccountListMessage, "Updating account...");
+      try {
+        await api(`/api/admin/accounts/${encodeURIComponent(userId)}`, {
+          method: "PATCH",
+          body: JSON.stringify(payload)
+        });
+        setMessage(adminAccountListMessage, "Update completed.", "success");
+        await loadAdminAccounts({ keepMessage: true });
+        await loadAdminClassTeacherAssignments().catch(() => {});
+      } catch (error) {
+        btn.disabled = false;
+        const message = /404/.test(String(error.message || ""))
+          ? "The account edit API is not available on the running server yet. Restart the local server or redeploy Render, then refresh this page."
+          : error.message || "Failed to save account.";
+        setMessage(adminAccountListMessage, message, "error");
+      }
+    });
+  });
+
+  adminAccountListWrap.querySelectorAll("[data-admin-delete-account]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const userId = String(btn.getAttribute("data-admin-delete-account") || "");
+      const row = rows.find((account) => String(account.user_id || "") === userId);
+      if (!userId || !row) return;
+      const label = row.full_name || row.email || "this account";
+      if (!window.confirm(`Delete ${label}? This removes the login account and related profile data.`)) return;
+      btn.disabled = true;
+      setMessage(adminAccountListMessage, "Deleting account...");
+      try {
+        await api(`/api/admin/accounts/${encodeURIComponent(userId)}`, { method: "DELETE" });
+        setMessage(adminAccountListMessage, `Deleted ${label}.`, "success");
+        await loadAdminAccounts();
+        await loadAdminClassTeacherAssignments().catch(() => {});
+      } catch (error) {
+        btn.disabled = false;
+        setMessage(adminAccountListMessage, error.message || "Failed to delete account.", "error");
+      }
+    });
+  });
+}
+
+async function loadAdminAccounts(options = {}) {
+  if (!adminAccountListWrap) return;
+  if (!options.keepMessage) setMessage(adminAccountListMessage, "Loading accounts...");
+  let data;
+  try {
+    data = await api("/api/admin/accounts");
+  } catch (error) {
+    if (/404/.test(String(error.message || ""))) {
+      throw new Error("The admin account list API is not available on the running server yet. Restart the local server or redeploy Render, then refresh this page.");
+    }
+    throw error;
+  }
+  renderAdminAccounts(data.accounts || []);
+  if (!options.keepMessage) setMessage(adminAccountListMessage, `Loaded ${(data.accounts || []).length} account(s).`, "success");
+}
+
+let latestAdminClassTeacherPayload = { teachers: [], classes: [], assignments: [] };
+let latestAdminAccounts = [];
+let adminAccountFilters = { full_name: "", email: "", role: "", grade: "", class_name: "" };
+
+function adminAccountMatchesFilters(account) {
+  const checks = {
+    full_name: String(account.full_name || ""),
+    email: String(account.email || ""),
+    role: String(account.role || ""),
+    grade: String(account.grade || ""),
+    class_name: String(account.class_name || "")
+  };
+  return Object.entries(adminAccountFilters).every(([key, value]) => {
+    const needle = String(value || "").trim().toLowerCase();
+    if (!needle) return true;
+    return checks[key].toLowerCase().includes(needle);
+  });
+}
+
+function renderAdminClassTeacherAssignments(payload) {
+  latestAdminClassTeacherPayload = payload || { teachers: [], classes: [], assignments: [] };
+  if (!adminClassTeacherWrap) return;
+  const teachers = Array.isArray(payload?.teachers) ? payload.teachers : [];
+  const classes = Array.isArray(payload?.classes) ? payload.classes : [];
+  const assignedByClass = new Map(
+    (Array.isArray(payload?.assignments) ? payload.assignments : []).map((row) => [
+      String(row.class_name || ""),
+      String(row.teacher_id || "")
+    ])
+  );
+  if (!classes.length) {
+    adminClassTeacherWrap.innerHTML = `<p class="hint">No student classes found yet.</p>`;
+    return;
+  }
+  const teacherOptions = (selectedId) =>
+    `<option value="">No teacher</option>${teachers
+      .map((teacher) => {
+        const id = String(teacher.user_id || "");
+        const label = `${teacher.full_name || teacher.email || id}${teacher.email ? ` (${teacher.email})` : ""}`;
+        return `<option value="${escapeHtml(id)}" ${id === selectedId ? "selected" : ""}>${escapeHtml(label)}</option>`;
+      })
+      .join("")}`;
+  adminClassTeacherWrap.innerHTML = `
+    <table class="matrix-table">
+      <thead>
+        <tr>
+          <th>Class</th>
+          <th>Subject teacher</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${classes
+          .map((className) => {
+            const selected = assignedByClass.get(String(className || "")) || "";
+            return `
+              <tr>
+                <td>${escapeHtml(className)}</td>
+                <td>
+                  <select class="admin-class-teacher-select" data-class-name="${escapeHtml(className)}">
+                    ${teacherOptions(selected)}
+                  </select>
+                </td>
+              </tr>`;
+          })
+          .join("")}
+      </tbody>
+    </table>`;
+}
+
+async function loadAdminClassTeacherAssignments() {
+  if (!adminClassTeacherWrap) return;
+  setMessage(adminClassTeacherMessage, "Loading class teacher settings...");
+  let data;
+  try {
+    data = await api("/api/admin/teacher-class-assignments");
+  } catch (error) {
+    if (/404/.test(String(error.message || ""))) {
+      throw new Error("The admin class-teacher API is not available on the running server yet. Restart the local server or redeploy Render, then refresh this page.");
+    }
+    throw error;
+  }
+  renderAdminClassTeacherAssignments(data);
+  setMessage(adminClassTeacherMessage, "Class teacher settings loaded.", "success");
+}
+
+async function saveAdminClassTeacherAssignments() {
+  const assignments = [...document.querySelectorAll(".admin-class-teacher-select")]
+    .map((select) => ({
+      class_name: select.getAttribute("data-class-name") || "",
+      teacher_id: select.value || ""
+    }))
+    .filter((row) => row.class_name && row.teacher_id);
+  setMessage(adminClassTeacherMessage, "Saving class teacher settings...");
+  let data;
+  try {
+    data = await api("/api/admin/teacher-class-assignments", {
+      method: "PUT",
+      body: JSON.stringify({ assignments })
+    });
+  } catch (error) {
+    if (/404/.test(String(error.message || ""))) {
+      throw new Error("The admin class-teacher API is not available on the running server yet. Restart the local server or redeploy Render, then refresh this page.");
+    }
+    throw error;
+  }
+  setMessage(adminClassTeacherMessage, `Saved ${data.saved || 0} class teacher assignment(s).`, "success");
+  await loadAdminClassTeacherAssignments();
+}
+
+if (adminLoadClassTeachersBtn) {
+  adminLoadClassTeachersBtn.addEventListener("click", () => {
+    loadAdminClassTeacherAssignments().catch((error) => setMessage(adminClassTeacherMessage, error.message || "Failed to load.", "error"));
+  });
+}
+
+if (adminLoadAccountsBtn) {
+  adminLoadAccountsBtn.addEventListener("click", () => {
+    loadAdminAccounts().catch((error) => setMessage(adminAccountListMessage, error.message || "Failed to load accounts.", "error"));
+  });
+}
+
+if (adminBatchUpdateAccountsBtn) {
+  adminBatchUpdateAccountsBtn.addEventListener("click", async () => {
+    const userIds = [...document.querySelectorAll(".admin-account-select:checked")]
+      .map((input) => String(input.getAttribute("data-admin-account-select") || ""))
+      .filter(Boolean);
+    if (!userIds.length) {
+      setMessage(adminAccountListMessage, "Select at least one account.", "error");
+      return;
+    }
+    const payload = {
+      user_ids: userIds
+    };
+    if (adminBatchAccountRole?.value) payload.role = adminBatchAccountRole.value;
+    if (adminBatchAccountGrade?.value.trim()) payload.grade = adminBatchAccountGrade.value.trim();
+    if (adminBatchAccountClass?.value.trim()) payload.class_name = adminBatchAccountClass.value.trim();
+    if (adminBatchAccountPassword?.value.trim()) payload.password = adminBatchAccountPassword.value.trim();
+    if (!payload.role && !payload.grade && !payload.class_name && !payload.password) {
+      setMessage(adminAccountListMessage, "Type at least one new value for batch update.", "error");
+      return;
+    }
+    const confirmText = `Update ${userIds.length} selected account(s)?`;
+    if (!window.confirm(confirmText)) return;
+    adminBatchUpdateAccountsBtn.disabled = true;
+    setMessage(adminAccountListMessage, "Updating selected accounts...");
+    try {
+      const data = await api("/api/admin/accounts/batch", {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
+      setMessage(adminAccountListMessage, `Updated ${data.updated || 0}. Failed ${data.failed || 0}.`, data.failed ? "error" : "success");
+      if (adminBatchAccountPassword) adminBatchAccountPassword.value = "";
+      await loadAdminAccounts({ keepMessage: true });
+      await loadAdminClassTeacherAssignments().catch(() => {});
+    } catch (error) {
+      const message = /404/.test(String(error.message || ""))
+        ? "The batch account edit API is not available on the running server yet. Restart the local server or redeploy Render, then refresh this page."
+        : error.message || "Failed to update selected accounts.";
+      setMessage(adminAccountListMessage, message, "error");
+    } finally {
+      adminBatchUpdateAccountsBtn.disabled = false;
+    }
+  });
+}
+
+if (adminSaveClassTeachersBtn) {
+  adminSaveClassTeachersBtn.addEventListener("click", () => {
+    saveAdminClassTeacherAssignments().catch((error) => setMessage(adminClassTeacherMessage, error.message || "Failed to save.", "error"));
+  });
+}
+
+if (adminCreateAccountsBtn) {
+  adminCreateAccountsBtn.addEventListener("click", async () => {
+    const accounts = parseAdminAccountBatch(adminAccountBatchInput?.value || "");
+    if (!accounts.length) {
+      setMessage(adminMessage, "Paste at least one account row.", "error");
+      return;
+    }
+    setMessage(adminMessage, "Creating accounts...");
+    try {
+      const data = await api("/api/admin/accounts/batch", {
+        method: "POST",
+        body: JSON.stringify({ accounts })
+      });
+      renderAdminAccountResults(data.results || []);
+      setMessage(adminMessage, `Created ${data.created || 0}. Failed ${data.failed || 0}.`, data.failed ? "error" : "success");
+      await loadAdminAccounts().catch(() => {});
+    } catch (error) {
+      setMessage(adminMessage, error.message || "Failed to create accounts.", "error");
+    }
+  });
+}
+
 signupForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   setMessage(authMessage, "Creating account...");
@@ -3943,6 +5331,20 @@ loginForm.addEventListener("submit", async (event) => {
   setMessage(authMessage, "Checking login account...");
   if (!(await ensureSupabaseReady())) return;
   const typedEmail = normalizeEmail(loginEmail.value);
+
+  try {
+    const emailCheck = await api("/api/auth/check-email", {
+      method: "POST",
+      body: JSON.stringify({ email: typedEmail })
+    });
+    if (!emailCheck.exists) {
+      setMessage(authMessage, "Incorrect Email", "error");
+      return;
+    }
+  } catch (error) {
+    setMessage(authMessage, error.message || "Failed to check email.", "error");
+    return;
+  }
 
   let browserCheck = { enforced: false };
   try {
@@ -3974,7 +5376,10 @@ loginForm.addEventListener("submit", async (event) => {
   }
 
   if (error) {
-    setMessage(authMessage, error.message, "error");
+    const message = /invalid login credentials/i.test(String(error.message || ""))
+      ? "Incorrect Password"
+      : error.message;
+    setMessage(authMessage, message, "error");
     return;
   }
 
@@ -4050,6 +5455,16 @@ if (reviewLoadBtn) {
   });
 }
 
+if (studentReviewBackBtn) {
+  studentReviewBackBtn.addEventListener("click", () => {
+    const topic = String(studentStatusReturnContext?.topic || "");
+    switchProfileTab("topic-level");
+    if (topic) showStudentTopicStatus(topic);
+    studentStatusReturnContext = null;
+    studentReviewBackBtn.hidden = true;
+  });
+}
+
 if (dailyPrevBtn) {
   dailyPrevBtn.addEventListener("click", async () => {
     if (currentDailyIndex <= 0) return;
@@ -4097,6 +5512,7 @@ if (dailyRefreshLatestBtn) {
       });
       lastSubmittedQuestionId = null;
       currentDailyIndex = 0;
+      clearDailyCursor(date);
       dailyReviewAvailable = false;
       if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = true;
       if (dailyRefreshLatestBtn) dailyRefreshLatestBtn.hidden = true;
@@ -4157,6 +5573,73 @@ if (studentProfileLink) {
   });
 }
 
+if (openPracticeModeBtn) {
+  openPracticeModeBtn.addEventListener("click", async () => {
+    await switchStudentPage("practice");
+  });
+}
+
+if (practiceBackProfileBtn) {
+  practiceBackProfileBtn.addEventListener("click", async () => {
+    await switchStudentPage("profile");
+  });
+}
+
+if (practiceLvSelect) {
+  practiceLvSelect.addEventListener("change", () => {
+    renderPracticeOptions();
+    currentPracticeQuestion = null;
+    currentPracticeSubmitted = null;
+    if (practiceQuestionList) practiceQuestionList.innerHTML = "";
+  });
+}
+
+if (practiceTopicSelect) {
+  practiceTopicSelect.addEventListener("change", () => {
+    renderPracticeOptions();
+    currentPracticeQuestion = null;
+    currentPracticeSubmitted = null;
+    if (practiceQuestionList) practiceQuestionList.innerHTML = "";
+  });
+}
+
+if (practiceSubtopicSelect) {
+  practiceSubtopicSelect.addEventListener("change", () => {
+    currentPracticeQuestion = null;
+    currentPracticeSubmitted = null;
+    if (practiceQuestionList) practiceQuestionList.innerHTML = "";
+  });
+}
+
+if (practiceStartBtn) {
+  practiceStartBtn.addEventListener("click", async () => {
+    try {
+      practiceSeenQuestionIds.clear();
+      if (practiceNextBtn) practiceNextBtn.hidden = true;
+      await loadPracticeQuestion();
+    } catch (error) {
+      setMessage(practiceMessage, error.message || "Failed to load practice question.", "error");
+    }
+  });
+}
+
+if (practiceNextBtn) {
+  practiceNextBtn.addEventListener("click", async () => {
+    try {
+      practiceNextBtn.hidden = true;
+      await loadPracticeQuestion();
+    } catch (error) {
+      setMessage(practiceMessage, error.message || "Failed to load the next question.", "error");
+    }
+  });
+}
+
+document.querySelectorAll("[data-profile-tab]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    switchProfileTab(String(btn.getAttribute("data-profile-tab") || "class-performance"));
+  });
+});
+
 if (studentTodayReviewLink) {
   studentTodayReviewLink.addEventListener("click", async () => {
     await switchStudentPage("today-review");
@@ -4182,9 +5665,15 @@ if (assessmentSubmitBtn) {
         timeout_ms: 15000
       });
       const counts = result.counts || {};
+      const totals = result.totals || {};
+      const reward = Number(result.token_reward || 0);
+      if (Number.isFinite(Number(result.token_balance))) {
+        serverTokenBalance = Number(result.token_balance);
+        renderTopTokenBadge();
+      }
       setMessage(
         assessmentMessage || studentMessage,
-        `Placement completed. Starting level: ${result.start_level || "-"}. Lv2 ${counts.lv2 || 0}/3, Lv3 ${counts.lv3 || 0}/3, Lv4 ${counts.lv4 || 0}/3, Lv5 ${counts.lv5 || 0}/3.`,
+        `Placement completed. Starting level: ${result.start_difficulty || result.start_level || "-"}.${reward > 0 ? ` +${reward} diamonds for completing the placement test.` : ""} Lv2 ${counts.lv2 || 0}/${totals.lv2 || 0}, Lv3 ${counts.lv3 || 0}/${totals.lv3 || 0}, Lv4 ${counts.lv4 || 0}/${totals.lv4 || 0}.`,
         "success"
       );
       initialAssessmentRequired = false;
@@ -4718,6 +6207,15 @@ if (teacherStudentBackBtn) {
     if (target === "groups") showTeacherGroupPage();
     else if (target === "batch" || target === "alert") showTeacherAlertPage();
     else showTeacherDashboardPage();
+  });
+}
+
+if (alertWrongBackBtn) {
+  alertWrongBackBtn.addEventListener("click", async () => {
+    const ctx = teacherStatusReturnContext;
+    if (!ctx?.topic) return;
+    if (alertWrongDialog?.open) alertWrongDialog.close();
+    await showTeacherStudentTopicStatus(ctx.topic, ctx.topics || []);
   });
 }
 

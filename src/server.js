@@ -30,6 +30,12 @@ const TEACHER_EMAILS = new Set(
     .map((email) => email.trim().toLowerCase())
     .filter(Boolean)
 );
+const ADMIN_EMAILS = new Set(
+  String(process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean)
+);
 
 const DIFF = ["lv2", "lv3", "lv4", "lv5", "lv5*", "lv5**"];
 const GRADES = ["F1", "F2", "F3", "F4", "F5", "F6"];
@@ -49,7 +55,8 @@ const PROGRESS_STATUS = {
   FROZEN: "FROZEN"
 };
 const CARELESS_MIN_SECONDS = Math.max(0, Number(process.env.CARELESS_MIN_SECONDS || 10));
-const STARTER_TOKENS = 120;
+const STARTER_TOKENS = 0;
+const INITIAL_ASSESSMENT_COMPLETION_TOKENS = 100;
 
 const hasCloudConfig = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
 const hasAIConfig = Boolean(GEMINI_API_KEY);
@@ -71,6 +78,12 @@ app.use((req, res, next) => {
   }
   if (req.path === "/portal.js" || req.path === "/portal.css") {
     return res.status(404).send("Not found.");
+  }
+  return next();
+});
+app.use((req, res, next) => {
+  if (APP_MODE === "student_portal" && req.path === "/") {
+    return res.redirect("/portal.html");
   }
   return next();
 });
@@ -140,6 +153,10 @@ function isTeacherEmail(email) {
   return TEACHER_EMAILS.has(normalizeEmail(email));
 }
 
+function isAdminEmail(email) {
+  return ADMIN_EMAILS.has(normalizeEmail(email));
+}
+
 function isAllowedSchoolEmail(email) {
   if (!SCHOOL_EMAIL_DOMAIN) return true;
   return normalizeEmail(email).endsWith(`@${SCHOOL_EMAIL_DOMAIN}`);
@@ -150,6 +167,11 @@ function compareAnswer(studentAnswer, expectedAnswer) {
   const b = String(expectedAnswer || "").trim().toLowerCase().replace(/\s+/g, " ");
   if (!a || !b) return null;
   return a === b;
+}
+
+function isDontKnowAnswer(value) {
+  const answer = String(value || "").trim().toLowerCase();
+  return !answer || answer === "__dont_know__" || answer === "don't know" || answer === "dont know";
 }
 
 function normalizeAnswerForCompare(value) {
@@ -179,6 +201,30 @@ function computeSubmissionStats(submissions) {
     correct_percentage: correctPercentage,
     average_time_seconds: averageTimeSeconds
   };
+}
+
+function normalizePracticeSubmissions(rows) {
+  return (Array.isArray(rows) ? rows : []).map((row) => ({
+    ...row,
+    assignment_date: toDateKey(row.submitted_at || new Date().toISOString())
+  }));
+}
+
+function isMissingTableError(error) {
+  const code = String(error?.code || "");
+  const message = String(error?.message || "").toLowerCase();
+  return code === "42P01" || message.includes("does not exist");
+}
+
+async function fetchPracticeSubmissionsForStudents(studentIds, select = "student_id,is_correct,time_spent_seconds,submitted_at") {
+  const ids = (Array.isArray(studentIds) ? studentIds : [studentIds]).map((id) => String(id || "").trim()).filter(Boolean);
+  if (!ids.length) return [];
+  const { data, error } = await supabase.from("student_practice_submissions").select(select).in("student_id", ids);
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw new Error(error.message);
+  }
+  return normalizePracticeSubmissions(data || []);
 }
 
 function toDateKey(value) {
@@ -236,7 +282,7 @@ function clamp01To100(x) {
   return Math.max(0, Math.min(100, Math.round(Number(x) || 0)));
 }
 
-function computeAspectMetrics(submissions, diamondGained = 0) {
+function computeAspectMetrics(submissions, diamondsUsed = 0) {
   const stats = computeSubmissionStats(submissions || []);
   const doneDates = buildDailyDoneDateSetFromSubmissions(submissions || []);
   const currentStreakDays = computeCurrentStreakDaysFromDateSet(doneDates);
@@ -244,11 +290,11 @@ function computeAspectMetrics(submissions, diamondGained = 0) {
   const avgSec = Number(stats.average_time_seconds || 0);
 
   const metrics = {
-    Combo: clamp01To100((currentStreakDays / 21) * 100),
+    Combo: clamp01To100((longestStreakDays / 21) * 100),
     Aim: clamp01To100(stats.correct_percentage),
     Flash: clamp01To100(avgSec > 0 ? ((150 - avgSec) / 120) * 100 : 0),
     Grind: clamp01To100((Number(stats.questions_done || 0) / 300) * 100),
-    Fortune: clamp01To100((Number(diamondGained || 0) / 1200) * 100)
+    Fortune: clamp01To100((Number(diamondsUsed || 0) / 1200) * 100)
   };
 
   return {
@@ -257,7 +303,15 @@ function computeAspectMetrics(submissions, diamondGained = 0) {
     correct_percentage: Number(stats.correct_percentage || 0),
     average_time_seconds: Number(stats.average_time_seconds || 0),
     current_streak_days: currentStreakDays,
-    longest_streak_days: longestStreakDays
+    longest_streak_days: longestStreakDays,
+    diamonds_used: Number(diamondsUsed || 0),
+    aspect_values: {
+      Combo: longestStreakDays,
+      Aim: Number(stats.correct_percentage || 0),
+      Flash: Number(stats.average_time_seconds || 0),
+      Grind: Number(stats.questions_done || 0),
+      Fortune: Number(diamondsUsed || 0)
+    }
   };
 }
 
@@ -274,7 +328,7 @@ function weightedPick(items, weightKey) {
   return rows[rows.length - 1] || null;
 }
 
-async function fetchDiamondGainedByStudentMap(studentIds) {
+async function fetchDiamondsUsedByStudentMap(studentIds) {
   if (!Array.isArray(studentIds) || !studentIds.length) return new Map();
   const { data, error } = await supabase
     .from("student_token_ledger")
@@ -286,12 +340,54 @@ async function fetchDiamondGainedByStudentMap(studentIds) {
     const sid = String(row.student_id || "").trim();
     if (!sid) continue;
     const delta = Number(row.delta_tokens || 0);
-    const reason = String(row.reason || "").trim();
-    if (delta > 0 && (reason === "question_submission" || reason === "gacha_duplicate_compensation")) {
-      map.set(sid, Number(map.get(sid) || 0) + delta);
+    if (delta < 0) {
+      map.set(sid, Number(map.get(sid) || 0) + Math.abs(delta));
     }
   }
   return map;
+}
+
+async function fetchSelectedAvatarFrameMap(studentIds) {
+  const ids = (Array.isArray(studentIds) ? studentIds : []).map((x) => String(x || "").trim()).filter(Boolean);
+  const empty = { avatars: new Map(), frames: new Map() };
+  if (!ids.length) return empty;
+  try {
+    const [avatarStateResult, frameStateResult] = await Promise.all([
+      supabase.from("student_avatar_state").select("student_id,selected_avatar_id").in("student_id", ids),
+      supabase.from("student_frame_state").select("student_id,selected_frame_id").in("student_id", ids)
+    ]);
+    if (avatarStateResult.error || frameStateResult.error) return empty;
+
+    const avatarStateRows = Array.isArray(avatarStateResult.data) ? avatarStateResult.data : [];
+    const frameStateRows = Array.isArray(frameStateResult.data) ? frameStateResult.data : [];
+    const avatarIds = [...new Set(avatarStateRows.map((x) => Number(x.selected_avatar_id || 0)).filter((x) => x > 0))];
+    const frameIds = [...new Set(frameStateRows.map((x) => Number(x.selected_frame_id || 0)).filter((x) => x > 0))];
+    const [avatarResult, frameResult] = await Promise.all([
+      avatarIds.length
+        ? supabase.from("avatar_characters").select("id,name,emoji,image_url").in("id", avatarIds)
+        : Promise.resolve({ data: [], error: null }),
+      frameIds.length
+        ? supabase.from("frame_items").select("id,name,style_key,image_url").in("id", frameIds)
+        : Promise.resolve({ data: [], error: null })
+    ]);
+    if (avatarResult.error || frameResult.error) return empty;
+
+    const avatarById = new Map((avatarResult.data || []).map((x) => [Number(x.id), x]));
+    const frameById = new Map((frameResult.data || []).map((x) => [Number(x.id), x]));
+    const avatars = new Map();
+    const frames = new Map();
+    for (const row of avatarStateRows) {
+      const avatar = avatarById.get(Number(row.selected_avatar_id || 0));
+      if (avatar) avatars.set(String(row.student_id || ""), avatar);
+    }
+    for (const row of frameStateRows) {
+      const frame = frameById.get(Number(row.selected_frame_id || 0));
+      if (frame) frames.set(String(row.student_id || ""), frame);
+    }
+    return { avatars, frames };
+  } catch (_error) {
+    return empty;
+  }
 }
 
 async function buildClassAnalytics(className, targetStudentId, fallbackSubmissions) {
@@ -300,7 +396,7 @@ async function buildClassAnalytics(className, targetStudentId, fallbackSubmissio
   if (!classKey) {
     const targetDiamond = 0;
     const target = computeAspectMetrics(fallbackSubmissions || [], targetDiamond);
-    return { labels, student: target.metrics, class_avg: Object.fromEntries(labels.map((k) => [k, 0])), titles: [] };
+    return { labels, student: target.metrics, class_avg: Object.fromEntries(labels.map((k) => [k, 0])), student_values: target.aspect_values, leaders: [], titles: [], classmates_power: [] };
   }
 
   const { data: classmates, error: classmatesError } = await supabase
@@ -309,21 +405,39 @@ async function buildClassAnalytics(className, targetStudentId, fallbackSubmissio
     .eq("role", "student")
     .eq("class_name", classKey);
   if (classmatesError) throw new Error(classmatesError.message);
-  const members = Array.isArray(classmates) ? classmates : [];
+  let members = Array.isArray(classmates) ? classmates : [];
+  if (!members.length) {
+    const { data: fuzzyClassmates, error: fuzzyClassmatesError } = await supabase
+      .from("user_profiles")
+      .select("user_id,full_name,class_name,role")
+      .eq("role", "student")
+      .ilike("class_name", classKey);
+    if (fuzzyClassmatesError) throw new Error(fuzzyClassmatesError.message);
+    members = Array.isArray(fuzzyClassmates) ? fuzzyClassmates : [];
+  }
   const ids = members.map((m) => String(m.user_id || "")).filter(Boolean);
   if (!ids.length) {
-    return { labels, student: Object.fromEntries(labels.map((k) => [k, 0])), class_avg: Object.fromEntries(labels.map((k) => [k, 0])), titles: [] };
+    return {
+      labels,
+      student: Object.fromEntries(labels.map((k) => [k, 0])),
+      class_avg: Object.fromEntries(labels.map((k) => [k, 0])),
+      student_values: Object.fromEntries(labels.map((k) => [k, 0])),
+      leaders: [],
+      titles: [],
+      classmates_power: []
+    };
   }
 
-  const [subsResult, diamondsMap] = await Promise.all([
+  const [subsResult, practiceRows, diamondsMap] = await Promise.all([
     supabase
       .from("student_submissions")
       .select("student_id,assignment_date,is_correct,time_spent_seconds,submitted_at")
       .in("student_id", ids),
-    fetchDiamondGainedByStudentMap(ids)
+    fetchPracticeSubmissionsForStudents(ids).catch(() => []),
+    fetchDiamondsUsedByStudentMap(ids).catch(() => new Map())
   ]);
   if (subsResult.error) throw new Error(subsResult.error.message);
-  const allSubs = Array.isArray(subsResult.data) ? subsResult.data : [];
+  const allSubs = [...(Array.isArray(subsResult.data) ? subsResult.data : []), ...(Array.isArray(practiceRows) ? practiceRows : [])];
   const byStudent = new Map();
   for (const sid of ids) byStudent.set(sid, []);
   for (const row of allSubs) {
@@ -351,31 +465,42 @@ async function buildClassAnalytics(className, targetStudentId, fallbackSubmissio
 
   const targetRow =
     aspectRows.find((x) => String(x.student_id) === String(targetStudentId)) ||
-    { metrics: Object.fromEntries(labels.map((k) => [k, 0])), questions_done: 0, current_streak_days: 0 };
+    { metrics: Object.fromEntries(labels.map((k) => [k, 0])), aspect_values: Object.fromEntries(labels.map((k) => [k, 0])), questions_done: 0, current_streak_days: 0 };
 
   const minQ = 30;
-  const minStreakDays = 7;
   const titleDefs = [
-    { key: "Combo", name: "Combo King", sort: (a, b) => Number(b.current_streak_days || 0) - Number(a.current_streak_days || 0), eligible: (x) => x.current_streak_days >= minStreakDays },
-    { key: "Aim", name: "Aim Master", sort: (a, b) => Number(b.correct_percentage || 0) - Number(a.correct_percentage || 0), eligible: (x) => x.questions_done >= minQ },
-    { key: "Flash", name: "Flash Solver", sort: (a, b) => Number(a.average_time_seconds || 0) - Number(b.average_time_seconds || 0), eligible: (x) => x.questions_done >= minQ && Number(x.average_time_seconds || 0) > 0 },
-    { key: "Grind", name: "Grind Titan", sort: (a, b) => Number(b.questions_done || 0) - Number(a.questions_done || 0), eligible: (x) => x.questions_done >= minQ },
-    { key: "Fortune", name: "Diamond Tycoon", sort: (a, b) => Number(b.metrics?.Fortune || 0) - Number(a.metrics?.Fortune || 0), eligible: (x) => x.questions_done >= minQ }
+    { key: "Combo", name: "Longest streaks", sort: (a, b) => Number(b.longest_streak_days || 0) - Number(a.longest_streak_days || 0), eligible: () => true, value: (x) => Number(x.longest_streak_days || 0) },
+    { key: "Aim", name: "Correct %", sort: (a, b) => Number(b.correct_percentage || 0) - Number(a.correct_percentage || 0), eligible: (x) => x.questions_done >= minQ, value: (x) => Number(x.correct_percentage || 0) },
+    { key: "Flash", name: "Speed", sort: (a, b) => Number(a.average_time_seconds || 0) - Number(b.average_time_seconds || 0), eligible: (x) => x.questions_done >= minQ && Number(x.average_time_seconds || 0) > 0, value: (x) => Number(x.average_time_seconds || 0) },
+    { key: "Grind", name: "Questions done", sort: (a, b) => Number(b.questions_done || 0) - Number(a.questions_done || 0), eligible: () => true, value: (x) => Number(x.questions_done || 0) },
+    { key: "Fortune", name: "Diamonds used", sort: (a, b) => Number(b.diamonds_used || 0) - Number(a.diamonds_used || 0), eligible: () => true, value: (x) => Number(x.diamonds_used || 0) }
   ];
   const titles = titleDefs
     .map((d) => {
       const eligible = aspectRows.filter((x) => d.eligible(x)).sort(d.sort);
       const top = eligible[0];
       if (!top) return null;
-      return { aspect_key: d.key, aspect_name: d.key, title: d.name, student_name: top.student_name, student_id: top.student_id };
+      return { aspect_key: d.key, aspect_name: d.name, title: d.name, student_name: top.student_name, student_id: top.student_id, value: d.value(top) };
     })
     .filter(Boolean);
+  const avatarFrameMap = await fetchSelectedAvatarFrameMap(ids);
+  const classmatesPower = aspectRows.map((row) => ({
+    student_id: row.student_id,
+    student_name: row.student_name,
+    selected_avatar: avatarFrameMap.avatars.get(String(row.student_id || "")) || null,
+    selected_frame: avatarFrameMap.frames.get(String(row.student_id || "")) || null,
+    metrics: row.metrics || {},
+    aspect_values: row.aspect_values || {}
+  }));
 
   return {
     labels,
     student: targetRow.metrics,
     class_avg: avg,
-    titles
+    student_values: targetRow.aspect_values || {},
+    leaders: titles,
+    titles,
+    classmates_power: classmatesPower
   };
 }
 
@@ -411,6 +536,15 @@ function pickRandomOne(ids) {
   return ids[Math.floor(Math.random() * ids.length)];
 }
 
+function shuffleCopy(items) {
+  const arr = Array.isArray(items) ? [...items] : [];
+  for (let i = arr.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
 function comboKey(combo) {
   return `${String(combo.difficulty || "").trim()}|||${String(combo.topic || "").trim()}|||${String(combo.sub_type || "").trim()}`;
 }
@@ -440,19 +574,69 @@ async function fetchProfileByUserId(userId) {
   return supabase.from("user_profiles").select("*").eq("user_id", userId).maybeSingle();
 }
 
+async function fetchLatestStudentProfile(authUserOrProfile) {
+  const userId = String(authUserOrProfile?.id || authUserOrProfile?.user_id || "").trim();
+  const email = normalizeEmail(authUserOrProfile?.email || "");
+  const { data: byId, error: byIdError } = userId ? await fetchProfileByUserId(userId) : { data: null, error: null };
+  if (byIdError) throw new Error(byIdError.message);
+  if (byId?.class_name || !email) return byId;
+
+  const { data: byEmail, error: byEmailError } = await supabase
+    .from("user_profiles")
+    .select("*")
+    .eq("email", email)
+    .eq("role", "student")
+    .not("class_name", "is", null)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (byEmailError) throw new Error(byEmailError.message);
+  return byEmail || byId;
+}
+
 async function ensureProfileFromAuthUser(authUser) {
-  const fallbackRole = isTeacherEmail(authUser.email) ? "teacher" : "student";
+  const fallbackRole = isAdminEmail(authUser.email) ? "admin" : isTeacherEmail(authUser.email) ? "teacher" : "student";
+  const { data: existingProfile, error: existingProfileError } = await fetchProfileByUserId(authUser.id);
+  if (existingProfileError) throw new Error(existingProfileError.message);
+  let latestProfile = null;
+  if (!existingProfile?.class_name && normalizeEmail(authUser.email)) {
+    latestProfile = await fetchLatestStudentProfile({ ...authUser, user_id: authUser.id }).catch(() => null);
+  }
+  const metadataClassName = String(authUser.user_metadata?.class_name || "").trim();
+  const resolvedClassName = existingProfile?.class_name || latestProfile?.class_name || metadataClassName || "";
+  const metadataGrade = String(authUser.user_metadata?.grade || "").trim();
+  const inferredGradeNumber = gradeNumberFromValue(resolvedClassName);
+  const resolvedGrade = existingProfile?.grade || latestProfile?.grade || metadataGrade || (inferredGradeNumber ? `F${inferredGradeNumber}` : "");
+
   const profilePayload = {
     user_id: authUser.id,
     email: normalizeEmail(authUser.email),
-    full_name: String(authUser.user_metadata?.full_name || authUser.email || "").trim(),
-    role: String(authUser.user_metadata?.role || fallbackRole),
-    grade: String(authUser.user_metadata?.grade || "").trim() || null,
-    class_name: String(authUser.user_metadata?.class_name || "").trim() || null
+    full_name: String(authUser.user_metadata?.full_name || existingProfile?.full_name || authUser.email || "").trim(),
+    role: String(existingProfile?.role || authUser.user_metadata?.role || fallbackRole)
   };
+  if (!existingProfile || resolvedGrade) profilePayload.grade = resolvedGrade || null;
+  if (!existingProfile || resolvedClassName) profilePayload.class_name = resolvedClassName || null;
 
   await supabase.from("user_profiles").upsert(profilePayload, { onConflict: "user_id" });
   return fetchProfileByUserId(authUser.id);
+}
+
+async function updateStudentAuthClassMetadata(studentIds, className) {
+  const ids = Array.isArray(studentIds) ? studentIds.map((id) => String(id || "").trim()).filter(Boolean) : [];
+  for (const studentId of ids) {
+    try {
+      const { data } = await supabase.auth.admin.getUserById(studentId);
+      const current = data?.user?.user_metadata || {};
+      await supabase.auth.admin.updateUserById(studentId, {
+        user_metadata: {
+          ...current,
+          class_name: className || null
+        }
+      });
+    } catch (_error) {
+      // Profile table is the source of truth; auth metadata sync is best-effort.
+    }
+  }
 }
 
 async function ensureStudentTokenWallet(studentId) {
@@ -474,12 +658,14 @@ async function ensureStudentTokenWallet(studentId) {
     .single();
   if (createError) throw new Error(createError.message);
 
-  await supabase.from("student_token_ledger").insert({
-    student_id: studentId,
-    delta_tokens: STARTER_TOKENS,
-    reason: "starter_bonus",
-    metadata: {}
-  });
+  if (STARTER_TOKENS !== 0) {
+    await supabase.from("student_token_ledger").insert({
+      student_id: studentId,
+      delta_tokens: STARTER_TOKENS,
+      reason: "starter_bonus",
+      metadata: {}
+    });
+  }
   return created;
 }
 
@@ -758,7 +944,7 @@ async function drawCharacterGacha(studentId) {
   await grantStudentTokens(studentId, -cost, "gacha_draw_character", { cost });
   const { data: pool, error } = await supabase
     .from("avatar_characters")
-    .select("id,name,emoji,image_url,drop_rate,is_active")
+    .select("id,name,emoji,image_url,model_url,drop_rate,is_active")
     .eq("is_active", true);
   if (error) throw new Error(error.message);
   const picked = weightedPick(pool || [], "drop_rate") || (pool || [])[0];
@@ -780,16 +966,13 @@ async function drawCharacterGacha(studentId) {
       source: "gacha"
     });
     if (insertError) throw new Error(insertError.message);
-    await setSelectedAvatarForStudent(studentId, avatarId).catch(() => {});
-  } else {
-    await grantStudentTokens(studentId, 15, "gacha_duplicate_compensation", { pack: "character", avatar_id: avatarId }).catch(() => {});
   }
   const wallet = await ensureStudentTokenWallet(studentId);
   return {
     token_balance: Number(wallet.balance || 0),
     item: { ...picked, type: "character" },
     duplicate,
-    message: duplicate ? "Duplicate character. +15 diamonds compensation." : "New character unlocked!"
+    message: duplicate ? "Duplicate character." : "New character unlocked!"
   };
 }
 
@@ -819,16 +1002,13 @@ async function drawFrameGacha(studentId) {
       source: "gacha"
     });
     if (insertError) throw new Error(insertError.message);
-    await setSelectedFrameForStudent(studentId, frameId).catch(() => {});
-  } else {
-    await grantStudentTokens(studentId, 8, "gacha_duplicate_compensation", { pack: "frame", frame_id: frameId }).catch(() => {});
   }
   const wallet = await ensureStudentTokenWallet(studentId);
   return {
     token_balance: Number(wallet.balance || 0),
     item: { ...picked, type: "frame", emoji: "🖼️" },
     duplicate,
-    message: duplicate ? "Duplicate frame. +8 diamonds compensation." : "New frame unlocked!"
+    message: duplicate ? "Duplicate frame." : "New frame unlocked!"
   };
 }
 
@@ -855,11 +1035,64 @@ async function requireAuth(req, res, next) {
 
 function requireRole(role) {
   return (req, res, next) => {
-    if (!req.profile || req.profile.role !== role) {
+    const allowed = Array.isArray(role) ? role : [role];
+    if (!req.profile || !allowed.includes(req.profile.role)) {
       return res.status(403).json({ error: "You do not have permission to access this resource." });
     }
     return next();
   };
+}
+
+async function getTeacherAllowedClassNames(profile) {
+  if (profile?.role === "admin") return null;
+  if (profile?.role !== "teacher") return [];
+  const { data, error } = await supabase
+    .from("class_teacher_assignments")
+    .select("class_name")
+    .eq("teacher_id", profile.user_id);
+  if (error) {
+    if (isMissingTableError(error)) return [];
+    throw new Error(error.message);
+  }
+  return [...new Set((data || []).map((row) => String(row.class_name || "").trim()).filter(Boolean))];
+}
+
+function filterRowsByAllowedClasses(rows, allowedClasses) {
+  if (!Array.isArray(allowedClasses)) return Array.isArray(rows) ? rows : [];
+  const allowed = new Set(allowedClasses);
+  return (Array.isArray(rows) ? rows : []).filter((row) => allowed.has(String(row.class_name || row.user_profiles?.class_name || "").trim()));
+}
+
+async function ensureTeacherCanAccessStudent(profile, studentId) {
+  const allowedClasses = await getTeacherAllowedClassNames(profile);
+  if (!Array.isArray(allowedClasses)) return true;
+  if (!allowedClasses.length) return false;
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .select("class_name")
+    .eq("user_id", studentId)
+    .eq("role", "student")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return Boolean(data && allowedClasses.includes(String(data.class_name || "").trim()));
+}
+
+async function ensureTeacherCanAccessClass(profile, className) {
+  const allowedClasses = await getTeacherAllowedClassNames(profile);
+  if (!Array.isArray(allowedClasses)) return true;
+  return allowedClasses.includes(String(className || "").trim());
+}
+
+async function ensureTeacherCanAccessGroup(profile, groupId) {
+  const { data: group, error } = await supabase
+    .from("study_groups")
+    .select("id,owner_teacher_id")
+    .eq("id", groupId)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!group) return false;
+  if (!group.owner_teacher_id) return true;
+  return String(group.owner_teacher_id) === String(profile.user_id);
 }
 
 async function getAssignmentsForDate(studentId, dateString) {
@@ -874,22 +1107,92 @@ async function getAssignmentsForDate(studentId, dateString) {
   return Array.isArray(data) ? data : [];
 }
 
+async function fetchProblemRowsPaged({ grade = "", columns = "id,difficulty,topic,sub_type,grade" } = {}) {
+  const targetGrade = String(grade || "").trim();
+  const pageSize = 1000;
+  let from = 0;
+  const rows = [];
+  for (;;) {
+    let query = supabase
+      .from("problems")
+      .select(columns)
+      .order("id", { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (targetGrade) query = query.eq("grade", targetGrade);
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    const page = Array.isArray(data) ? data : [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+  return rows;
+}
+
 async function fetchProblemPoolForStudentGrade(studentGrade) {
   const targetGrade = String(studentGrade || "").trim();
-  let query = supabase.from("problems").select("id,difficulty,topic,sub_type,grade");
-  if (targetGrade) query = query.eq("grade", targetGrade);
-
-  let { data, error } = await query;
-  if (error) throw new Error(error.message);
-  let rows = Array.isArray(data) ? data : [];
+  let rows = await fetchProblemRowsPaged({ grade: targetGrade });
 
   if (!rows.length && targetGrade) {
-    const fallback = await supabase.from("problems").select("id,difficulty,topic,sub_type,grade");
-    if (fallback.error) throw new Error(fallback.error.message);
-    rows = Array.isArray(fallback.data) ? fallback.data : [];
+    rows = await fetchProblemRowsPaged();
   }
 
   return rows;
+}
+
+function gradeNumberFromValue(value) {
+  const match = String(value || "").trim().match(/(?:^|[^0-9])([1-6])(?:[^0-9]|$)/);
+  return match ? Number(match[1]) : 0;
+}
+
+function inferStudentGradeNumber(studentProfile) {
+  return gradeNumberFromValue(studentProfile?.grade) || gradeNumberFromValue(studentProfile?.class_name);
+}
+
+function nextAssessmentDifficulty(difficulty) {
+  const levels = ["lv2", "lv3", "lv4", "lv5"];
+  const index = levels.indexOf(String(difficulty || "").trim());
+  if (index < 0) return "lv2";
+  return levels[Math.min(index + 1, levels.length - 1)];
+}
+
+async function fetchInitialAssessmentProblemRows(studentProfile) {
+  const studentGradeNumber = inferStudentGradeNumber(studentProfile);
+  if (!studentGradeNumber || studentGradeNumber <= 1) return [];
+  const rows = await fetchProblemRowsPaged();
+  return rows.filter((row) => {
+    const questionGradeNumber = gradeNumberFromValue(row.grade);
+    return questionGradeNumber > 0 && questionGradeNumber < studentGradeNumber;
+  });
+}
+
+function summarizeAssessmentPool(rows, usedTopicKeys = new Set(), usedSubtopicKeys = new Set()) {
+  const levels = ["lv2", "lv3", "lv4"];
+  const summary = {};
+  for (const level of levels) {
+    const levelRows = (rows || []).filter((row) => String(row.difficulty || "").trim() === level);
+    const topics = new Set();
+    const subtopics = new Set();
+    const unusedTopics = new Set();
+    const unusedSubtopics = new Set();
+    for (const row of levelRows) {
+      const id = Number(row.id);
+      const topic = String(row.topic || "").trim().toLowerCase() || `blank-topic-${id}`;
+      const subtopic = `${topic}|||${String(row.sub_type || "").trim().toLowerCase() || `blank-subtopic-${id}`}`;
+      topics.add(topic);
+      subtopics.add(subtopic);
+      if (!usedTopicKeys.has(topic)) unusedTopics.add(topic);
+      if (!usedSubtopicKeys.has(subtopic)) unusedSubtopics.add(subtopic);
+    }
+    summary[level] = {
+      questions: levelRows.length,
+      topics: topics.size,
+      subtopics: subtopics.size,
+      unused_topics: unusedTopics.size,
+      unused_subtopics: unusedSubtopics.size
+    };
+  }
+  return summary;
 }
 
 async function fetchScopeRulesForStudent(studentId) {
@@ -1119,13 +1422,15 @@ function reviewIntervalByStage(stage) {
 
 function getUnlockedDifficulty(comboList, progressByKey) {
   for (const diff of DIFF) {
+    const progressRows = [...progressByKey.values()].filter((row) => String(row.difficulty || "").trim() === diff);
+    if (progressRows.length) {
+      const allProgressMastered = progressRows.every((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.MASTERED);
+      if (!allProgressMastered) return diff;
+      continue;
+    }
+
     const inLevel = comboList.filter((c) => c.difficulty === diff);
-    if (!inLevel.length) continue;
-    const allMastered = inLevel.every((c) => {
-      const row = progressByKey.get(comboKey(c));
-      return row && normalizeProgressStatus(row) === PROGRESS_STATUS.MASTERED;
-    });
-    if (!allMastered) return diff;
+    if (inLevel.length) return diff;
   }
   return DIFF[DIFF.length - 1];
 }
@@ -1239,6 +1544,7 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
   while (slotsLeft > 0) {
     const unlockedDifficulty = getUnlockedDifficulty(comboList, progressByKey);
     const unlockedCombos = comboList.filter((c) => c.difficulty === unlockedDifficulty);
+    if (!unlockedCombos.length) break;
     const crossDayDue = unlockedCombos
       .filter((combo) => {
         const row = progressByKey.get(comboKey(combo));
@@ -1256,10 +1562,18 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
       if (!row) return true;
       return normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN && Number(row.consecutive_correct_count || 0) === 0;
     });
-    const nextCombo = crossDayDue[0] || pickRandomOne(freshUnknown);
-    if (!nextCombo) break;
-    const ok = await pushByComboIfPossible(nextCombo, "unknown_progression");
-    if (!ok) break;
+    const candidates = [...crossDayDue, ...shuffleCopy(freshUnknown)]
+      .filter((combo, index, arr) => arr.findIndex((x) => comboKey(x) === comboKey(combo)) === index)
+      .filter((combo) => getComboCount(combo) < 2);
+    if (!candidates.length) break;
+    let added = false;
+    for (const combo of candidates) {
+      if (await pushByComboIfPossible(combo, "unknown_progression")) {
+        added = true;
+        break;
+      }
+    }
+    if (!added) break;
   }
 
   // Priority 4: BACKFILL, lower levels first.
@@ -1270,6 +1584,33 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
   for (const row of backfillRows) {
     if (slotsLeft <= 0) break;
     await pushByComboIfPossible(rowToCombo(row), "backfill");
+  }
+
+  // Final safety fill: keep the daily page usable when scope is valid but no
+  // adaptive bucket is currently due. It still respects the lowest unfinished
+  // level so higher-level questions do not jump ahead of unfinished lv2 work.
+  while (slotsLeft > 0) {
+    const unlockedDifficulty = getUnlockedDifficulty(comboList, progressByKey);
+    const primaryFallbackCombos = comboList.filter((combo) => combo.difficulty === unlockedDifficulty);
+    if (!primaryFallbackCombos.length) break;
+    const fallbackCombos = primaryFallbackCombos.filter((combo) => {
+      const row = progressByKey.get(comboKey(combo));
+      return !row || normalizeProgressStatus(row) !== PROGRESS_STATUS.FROZEN;
+    });
+    const nextCombo = pickRandomOne(fallbackCombos);
+    if (!nextCombo) break;
+    const ok = await pushByComboIfPossible(nextCombo, "scope_safe_fill");
+    if (!ok) {
+      const remaining = fallbackCombos.filter((combo) => getComboCount(combo) < 2);
+      let added = false;
+      for (const combo of remaining) {
+        if (await pushByComboIfPossible(combo, "scope_safe_fill")) {
+          added = true;
+          break;
+        }
+      }
+      if (!added) break;
+    }
   }
 
   return queue.slice(0, neededCount);
@@ -1285,7 +1626,7 @@ async function appendAssignmentsForStudentDate(studentProfile, dateString, count
 
   const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds);
   if (!queue.length) {
-    throw new Error("No assignable questions found under current group scope and progress rules.");
+    throw new Error("No assignable questions found in the student's lowest unfinished level under current class/group scope.");
   }
 
   const startSlot = assignments.reduce((acc, row) => Math.max(acc, Number(row.slot || 0)), 0);
@@ -1315,7 +1656,7 @@ async function appendAssignmentsForStudentDateWithBlocked(studentProfile, dateSt
 
   const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds);
   if (!queue.length) {
-    throw new Error("No assignable questions found under current group scope and progress rules.");
+    throw new Error("No assignable questions found in the student's lowest unfinished level under current class/group scope.");
   }
 
   const startSlot = assignments.reduce((acc, row) => Math.max(acc, Number(row.slot || 0)), 0);
@@ -1406,7 +1747,7 @@ async function hasCompletedInitialAssessment(studentId) {
 }
 
 async function buildInitialAssessmentQuestions(studentProfile) {
-  const rows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
+  const rows = await fetchInitialAssessmentProblemRows(studentProfile);
   const output = [];
   const usedTopicKeys = new Set();
   const usedSubtopicKeys = new Set();
@@ -1424,59 +1765,73 @@ async function buildInitialAssessmentQuestions(studentProfile) {
     usedTopicKeys.add(topicKeyFor(row, id));
     usedSubtopicKeys.add(subtopicKeyFor(row, id));
   };
-  for (const difficulty of ["lv2", "lv3", "lv4", "lv5"]) {
+  const rebuildInitialAssessmentUsedKeys = () => {
+    usedIds.clear();
+    usedTopicKeys.clear();
+    usedSubtopicKeys.clear();
+    for (const id of output) {
+      const row = rows.find((item) => Number(item.id) === Number(id));
+      usedIds.add(Number(id));
+      usedTopicKeys.add(topicKeyFor(row, id));
+      usedSubtopicKeys.add(subtopicKeyFor(row, id));
+    }
+  };
+  const pickAssessmentIdsForDifficulty = (pool, count, options = {}) => {
+    const allowRepeatedTopic = Boolean(options.allowRepeatedTopic);
+    const picked = [];
+    const localUsedTopics = new Set(usedTopicKeys);
+    const localUsedSubtopics = new Set(usedSubtopicKeys);
+    const localUsedIds = new Set(usedIds);
+    const candidates = shuffleCopy(pool);
+    for (const row of candidates) {
+      if (picked.length >= count) break;
+      const id = Number(row.id);
+      if (!Number.isInteger(id) || id <= 0) continue;
+      const topicKey = topicKeyFor(row, id);
+      const subtopicKey = subtopicKeyFor(row, id);
+      if (localUsedIds.has(id) || localUsedSubtopics.has(subtopicKey)) continue;
+      if (!allowRepeatedTopic && localUsedTopics.has(topicKey)) continue;
+      picked.push(id);
+      localUsedIds.add(id);
+      localUsedTopics.add(topicKey);
+      localUsedSubtopics.add(subtopicKey);
+    }
+    return picked;
+  };
+  const levelsByPriority = ["lv4", "lv3", "lv2"];
+  const questionsPerAssessmentLevel = 4;
+
+  for (const difficulty of levelsByPriority) {
     const pool = rows.filter((row) => String(row.difficulty || "").trim() === difficulty);
-    const preferred = pickRandomIds(
-      pool
-        .filter((row) => {
-          const id = Number(row.id);
-          return (
-            Number.isInteger(id) &&
-            id > 0 &&
-            !usedIds.has(id) &&
-            !usedTopicKeys.has(topicKeyFor(row, id)) &&
-            !usedSubtopicKeys.has(subtopicKeyFor(row, id))
-          );
-        })
-        .map((row) => Number(row.id)),
-      3
-    );
-    for (const id of preferred) {
+    const selectedForDifficulty = [];
+    const strictPicks = pickAssessmentIdsForDifficulty(pool, questionsPerAssessmentLevel);
+    for (const id of strictPicks) {
       rememberInitialAssessmentPick(pool, id);
+      selectedForDifficulty.push(id);
     }
 
-    if (preferred.length < 3) {
-      const subtopicFallback = pickRandomIds(
-        pool
-          .filter((row) => {
-            const id = Number(row.id);
-            return Number.isInteger(id) && id > 0 && !usedIds.has(id) && !usedSubtopicKeys.has(subtopicKeyFor(row, id));
-          })
-          .map((row) => Number(row.id)),
-        3 - preferred.length
-      );
-      for (const id of subtopicFallback) {
-        rememberInitialAssessmentPick(pool, id);
-      }
+    const remainingCount = questionsPerAssessmentLevel - selectedForDifficulty.length;
+    const fallbackPicks = remainingCount > 0
+      ? pickAssessmentIdsForDifficulty(pool, remainingCount, { allowRepeatedTopic: true })
+      : [];
+    for (const id of fallbackPicks) {
+      rememberInitialAssessmentPick(pool, id);
+      selectedForDifficulty.push(id);
     }
 
     const pickedForDifficulty = output.filter((id) => {
       const row = rows.find((item) => Number(item.id) === Number(id));
       return String(row?.difficulty || "").trim() === difficulty;
     }).length;
-    if (pickedForDifficulty < 3) {
-      const fallback = pickRandomIds(
-        pool
-          .map((row) => Number(row.id))
-          .filter((id) => Number.isInteger(id) && id > 0 && !usedIds.has(id)),
-        3 - pickedForDifficulty
-      );
-      for (const id of fallback) {
-        rememberInitialAssessmentPick(pool, id);
+    if (pickedForDifficulty < questionsPerAssessmentLevel) {
+      const selectedSet = new Set(selectedForDifficulty.map((id) => Number(id)));
+      for (let i = output.length - 1; i >= 0; i -= 1) {
+        if (selectedSet.has(Number(output[i]))) output.splice(i, 1);
       }
+      rebuildInitialAssessmentUsedKeys();
     }
   }
-  if (output.length < 12) throw new Error("Not enough questions for initial assessment.");
+  if (!output.length) return [];
 
   const { data, error } = await supabase
     .from("problems")
@@ -1489,22 +1844,95 @@ async function buildInitialAssessmentQuestions(studentProfile) {
     .filter(Boolean);
 }
 
-async function initializeProgressFromAssessment(studentProfile, counts) {
+async function buildInitialAssessmentDebug(studentProfile, selectedQuestions = null) {
+  const rows = await fetchInitialAssessmentProblemRows(studentProfile);
+  const questions = Array.isArray(selectedQuestions) ? selectedQuestions : await buildInitialAssessmentQuestions(studentProfile);
+  const selectedTopics = new Set();
+  const selectedSubtopics = new Set();
+  const selectedByLevel = { lv2: 0, lv3: 0, lv4: 0, lv5: 0 };
+  for (const q of questions) {
+    const topic = String(q.topic || "").trim().toLowerCase() || `blank-topic-${q.id}`;
+    const subtopic = `${topic}|||${String(q.sub_type || "").trim().toLowerCase() || `blank-subtopic-${q.id}`}`;
+    selectedTopics.add(topic);
+    selectedSubtopics.add(subtopic);
+    if (Object.prototype.hasOwnProperty.call(selectedByLevel, q.difficulty)) selectedByLevel[q.difficulty] += 1;
+  }
+  const questionsPerAssessmentLevel = 4;
+  const level_details = ["lv4", "lv3", "lv2"].map((level) => {
+    const levelRows = rows.filter((row) => String(row.difficulty || "").trim() === level);
+    const topics = new Set();
+    const subtopics = new Set();
+    for (const row of levelRows) {
+      const topic = String(row.topic || "").trim().toLowerCase() || `blank-topic-${row.id}`;
+      const subtopic = `${topic}|||${String(row.sub_type || "").trim().toLowerCase() || `blank-subtopic-${row.id}`}`;
+      topics.add(topic);
+      subtopics.add(subtopic);
+    }
+    const selectedCount = selectedByLevel[level] || 0;
+    let status = "selected";
+    if (selectedCount < questionsPerAssessmentLevel) {
+      if (!levelRows.length) {
+        status = "skipped: no questions below student grade";
+      } else if (subtopics.size < questionsPerAssessmentLevel) {
+        status = "skipped: fewer than 4 different sub-topics";
+      } else {
+        status = "not selected: refresh/restart server if this stays after deploying latest code";
+      }
+    }
+    return {
+      difficulty: level,
+      available_questions: levelRows.length,
+      available_topics: topics.size,
+      available_subtopics: subtopics.size,
+      selected_count: selectedCount,
+      status
+    };
+  });
+  return {
+    inferred_student_grade: inferStudentGradeNumber(studentProfile) ? `F${inferStudentGradeNumber(studentProfile)}` : "",
+    class_name: studentProfile.class_name || "",
+    profile_grade: studentProfile.grade || "",
+    selection_rules: "Use grade < student grade. Try lv4, lv3, lv2. Need 4 questions per included level. Never repeat sub-topic. Avoid repeated topic first; allow repeated topic only if needed. Lv5 is not tested, so the highest starting level is lv5.",
+    lower_grade_pool_count: rows.length,
+    pool_summary: summarizeAssessmentPool(rows),
+    level_details,
+    selected_by_level: selectedByLevel,
+    selected: questions.map((q) => ({
+      id: q.id,
+      difficulty: q.difficulty,
+      grade: q.grade,
+      topic: q.topic,
+      sub_type: q.sub_type
+    })),
+    repeated_topics_in_selected: questions.length !== selectedTopics.size,
+    repeated_subtopics_in_selected: questions.length !== selectedSubtopics.size
+  };
+}
+
+async function initializeProgressFromAssessment(studentProfile, counts, totals = {}) {
   const studentId = studentProfile.user_id;
-  const lv2 = Number(counts.lv2 || 0);
-  const lv3 = Number(counts.lv3 || 0);
-  const lv4 = Number(counts.lv4 || 0);
+  const levels = ["lv2", "lv3", "lv4", "lv5"];
+  const normalizedCounts = Object.fromEntries(levels.map((level) => [level, Number(counts[level] || 0)]));
+  const normalizedTotals = Object.fromEntries(levels.map((level) => [level, Number(totals[level] || 0)]));
   let startDifficulty = "lv2";
   const backfillDiffs = [];
-  if (lv2 >= 3 && lv3 >= 3 && lv4 >= 1) {
-    startDifficulty = "lv4";
-    backfillDiffs.push("lv2", "lv3");
-  } else if (lv2 >= 3) {
-    startDifficulty = "lv3";
-    backfillDiffs.push("lv2");
+  let highestFullyCorrect = "";
+  for (const level of levels) {
+    if (normalizedTotals[level] <= 0) continue;
+    if (normalizedCounts[level] !== normalizedTotals[level]) break;
+    highestFullyCorrect = level;
+  }
+  if (highestFullyCorrect) {
+    startDifficulty = nextAssessmentDifficulty(highestFullyCorrect);
+    for (const level of levels) {
+      if (level === startDifficulty) break;
+      if (normalizedTotals[level] > 0 && normalizedCounts[level] === normalizedTotals[level]) {
+        backfillDiffs.push(level);
+      }
+    }
   }
 
-  const allRows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
+  const allRows = await fetchProblemRowsPaged();
   const { comboList } = buildProblemPoolIndex(allRows);
   const upserts = [];
   for (const combo of comboList) {
@@ -1519,10 +1947,10 @@ async function initializeProgressFromAssessment(studentProfile, counts) {
   const { error } = await supabase.from("student_initial_assessments").upsert(
     {
       student_id: studentId,
-      lv2_correct: lv2,
-      lv3_correct: lv3,
-      lv4_correct: lv4,
-      lv5_correct: Number(counts.lv5 || 0),
+      lv2_correct: normalizedCounts.lv2,
+      lv3_correct: normalizedCounts.lv3,
+      lv4_correct: normalizedCounts.lv4,
+      lv5_correct: normalizedCounts.lv5,
       start_difficulty: startDifficulty,
       completed_at: new Date().toISOString()
     },
@@ -1551,9 +1979,32 @@ function hasTikz(text) {
 }
 
 function normalizeTikz(block) {
-  return String(block || "")
+  let s = String(block || "")
     .trim()
     .replace(/\\n(?![A-Za-z])/g, "\n");
+  s = s.replace(/\\text\{([^}]*)\}/g, "$1");
+  s = s.replace(
+    /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\$([^$]+)\$\s*;/g,
+    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
+  );
+  s = s.replace(
+    /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{\$([^$]+)\$\}\s*;/g,
+    (_m, opt = "", coord, label) => `\\node${opt} at (${coord}) {$${label}$};`
+  );
+  s = s.replace(
+    /\\node(\[[^\]]*\])?\s*at\s*\(([^)]*)\)\s*\{([^{}]*)\}\s*;/g,
+    (_m, opt = "", coord, label) => {
+      const normalized = String(label || "")
+        .trim()
+        .replace(/[✓✔]/g, "\\checkmark")
+        .replace(/[✗✘×]/g, "\\times");
+      if (/^\\(?:checkmark|times)$/.test(normalized)) {
+        return `\\node${opt} at (${coord}) {$${normalized}$};`;
+      }
+      return `\\node${opt} at (${coord}) {${label}};`;
+    }
+  );
+  return s;
 }
 
 function wrapTikzLatexDocument(tikzSource) {
@@ -1561,7 +2012,14 @@ function wrapTikzLatexDocument(tikzSource) {
   if (/\\begin\{document\}/.test(source)) return source;
   return [
     "\\documentclass[tikz,border=2pt]{standalone}",
+    "\\usepackage[utf8]{inputenc}",
     "\\usepackage{amsmath}",
+    "\\usepackage{amssymb}",
+    "\\DeclareUnicodeCharacter{2713}{\\ensuremath{\\checkmark}}",
+    "\\DeclareUnicodeCharacter{2714}{\\ensuremath{\\checkmark}}",
+    "\\DeclareUnicodeCharacter{2717}{\\ensuremath{\\times}}",
+    "\\DeclareUnicodeCharacter{2718}{\\ensuremath{\\times}}",
+    "\\DeclareUnicodeCharacter{00D7}{\\ensuremath{\\times}}",
     "\\usepackage{tikz}",
     "\\usetikzlibrary{angles,quotes,calc,arrows.meta,positioning,decorations.pathreplacing}",
     "\\begin{document}",
@@ -1584,6 +2042,10 @@ function buildKrokiTikzSvgUrl(tikzSource) {
   return `${KROKI_BASE_URL.replace(/\/+$/g, "")}/tikz/svg/${toBase64Url(compressed)}`;
 }
 
+function buildKrokiTikzSvgPostUrl() {
+  return `${KROKI_BASE_URL.replace(/\/+$/g, "")}/tikz/svg`;
+}
+
 function hashText(text) {
   return crypto.createHash("sha256").update(String(text || "")).digest("hex").slice(0, 16);
 }
@@ -1591,7 +2053,142 @@ function hashText(text) {
 function sanitizeSvg(svg) {
   const value = String(svg || "").trim();
   if (!value.includes("<svg")) throw new Error("Renderer did not return SVG content.");
-  return value;
+  return value
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/\son\w+="[^"]*"/gi, "")
+    .replace(/\son\w+='[^']*'/gi, "")
+    .replace(/javascript:/gi, "");
+}
+
+function stripMathLabel(label) {
+  return String(label || "")
+    .replace(/^\s*\$|\$\s*$/g, "")
+    .replace(/\\\(|\\\)/g, "")
+    .trim();
+}
+
+function escapeXml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function parseTikzCoordinate(value) {
+  const parts = String(value || "").split(",").map((part) => Number(String(part).trim()));
+  if (parts.length !== 2 || parts.some((part) => !Number.isFinite(part))) return null;
+  return { x: parts[0], y: parts[1] };
+}
+
+function evaluateSimplePlotExpression(expression, x) {
+  const jsExpression = String(expression || "").replace(/\\x/g, "x").replace(/\^/g, "**");
+  if (!/^[0-9x+\-*/().\s*]+$/.test(jsExpression)) return null;
+  try {
+    const value = Function("x", `"use strict"; return (${jsExpression});`)(x);
+    return Number.isFinite(value) ? value : null;
+  } catch (_error) {
+    return null;
+  }
+}
+
+function renderSimpleTikzToSvg(tikzSource) {
+  const source = normalizeTikz(tikzSource);
+  if (!/\\begin\{tikzpicture\}/.test(source) || !/\\end\{tikzpicture\}/.test(source)) return null;
+
+  const lines = [];
+  const labels = [];
+  const plots = [];
+  const points = [];
+  const rememberPoint = (point) => {
+    if (point) points.push(point);
+  };
+
+  const linePattern = /\\draw(\[[^\]]*\])?\s*\(([^)]*)\)\s*--\s*\(([^)]*)\)(?:\s*node\[([^\]]*)\]\s*\{([^}]*)\})?\s*;/g;
+  let lineMatch;
+  while ((lineMatch = linePattern.exec(source))) {
+    const start = parseTikzCoordinate(lineMatch[2]);
+    const end = parseTikzCoordinate(lineMatch[3]);
+    if (!start || !end) continue;
+    lines.push({ start, end, arrow: String(lineMatch[1] || "").includes("->") });
+    rememberPoint(start);
+    rememberPoint(end);
+    if (lineMatch[5]) labels.push({ point: end, text: stripMathLabel(lineMatch[5]), anchor: String(lineMatch[4] || "") });
+  }
+
+  const plotPattern = /\\draw\[([^\]]*domain\s*=\s*([-0-9.]+)\s*:\s*([-0-9.]+)[^\]]*)\]\s*plot\s*\(\s*\{\\x\}\s*,\s*\{([^}]*)\}\s*\)\s*;/g;
+  let plotMatch;
+  while ((plotMatch = plotPattern.exec(source))) {
+    const min = Number(plotMatch[2]);
+    const max = Number(plotMatch[3]);
+    const expression = plotMatch[4];
+    if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) continue;
+    const sampled = [];
+    for (let i = 0; i <= 80; i += 1) {
+      const x = min + ((max - min) * i) / 80;
+      const y = evaluateSimplePlotExpression(expression, x);
+      if (y === null) {
+        sampled.length = 0;
+        break;
+      }
+      const point = { x, y };
+      sampled.push(point);
+      rememberPoint(point);
+    }
+    if (sampled.length) plots.push(sampled);
+  }
+
+  const nodePattern = /\\node\s+at\s*\(([^)]*)\)\s*\{([^}]*)\}\s*;/g;
+  let nodeMatch;
+  while ((nodeMatch = nodePattern.exec(source))) {
+    const point = parseTikzCoordinate(nodeMatch[1]);
+    if (!point) continue;
+    labels.push({ point, text: stripMathLabel(nodeMatch[2]), anchor: "" });
+    rememberPoint(point);
+  }
+
+  if (!lines.length && !plots.length) return null;
+
+  const xs = points.map((point) => point.x);
+  const ys = points.map((point) => point.y);
+  const minX = Math.min(...xs) - 0.4;
+  const maxX = Math.max(...xs) + 0.4;
+  const minY = Math.min(...ys) - 0.4;
+  const maxY = Math.max(...ys) + 0.4;
+  const width = 360;
+  const height = 300;
+  const pad = 28;
+  const scale = Math.min((width - pad * 2) / Math.max(maxX - minX, 1), (height - pad * 2) / Math.max(maxY - minY, 1));
+  const toSvgPoint = (point) => ({ x: pad + (point.x - minX) * scale, y: height - pad - (point.y - minY) * scale });
+  const svgLines = lines.map((line) => {
+    const start = toSvgPoint(line.start);
+    const end = toSvgPoint(line.end);
+    return `<line x1="${start.x.toFixed(2)}" y1="${start.y.toFixed(2)}" x2="${end.x.toFixed(2)}" y2="${end.y.toFixed(2)}" stroke="#111827" stroke-width="1.5"${line.arrow ? ' marker-end="url(#arrow)"' : ""}/>`;
+  });
+  const svgPlots = plots.map((plot) => {
+    const d = plot.map((point, index) => {
+      const svgPoint = toSvgPoint(point);
+      return `${index === 0 ? "M" : "L"} ${svgPoint.x.toFixed(2)} ${svgPoint.y.toFixed(2)}`;
+    }).join(" ");
+    return `<path d="${d}" fill="none" stroke="#0f766e" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>`;
+  });
+  const svgLabels = labels.filter((label) => label.text).map((label) => {
+    const point = toSvgPoint(label.point);
+    const anchor = String(label.anchor || "");
+    const dx = anchor.includes("right") ? 12 : anchor.includes("left") ? -12 : 0;
+    const dy = anchor.includes("above") ? -10 : anchor.includes("below") ? 14 : 4;
+    const textAnchor = anchor.includes("left") ? "end" : "middle";
+    return `<text x="${(point.x + dx).toFixed(2)}" y="${(point.y + dy).toFixed(2)}" font-family="Arial, sans-serif" font-size="14" text-anchor="${textAnchor}" fill="#111827">${escapeXml(label.text)}</text>`;
+  });
+
+  return sanitizeSvg(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">
+<defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L8,4 L0,8 Z" fill="#111827"/></marker></defs>
+<rect width="100%" height="100%" fill="white"/>
+${svgLines.join("\n")}
+${svgPlots.join("\n")}
+${svgLabels.join("\n")}
+</svg>`);
 }
 
 async function ensureQuestionFigureBucket() {
@@ -1608,9 +2205,22 @@ async function ensureQuestionFigureBucket() {
 }
 
 async function renderTikzToSvg(tikzSource) {
-  const response = await fetch(buildKrokiTikzSvgUrl(tikzSource), {
-    headers: { Accept: "image/svg+xml" }
-  });
+  const latexDoc = wrapTikzLatexDocument(tikzSource);
+  let response;
+  try {
+    response = await fetch(buildKrokiTikzSvgPostUrl(), {
+      method: "POST",
+      headers: {
+        Accept: "image/svg+xml",
+        "Content-Type": "text/plain"
+      },
+      body: latexDoc
+    });
+  } catch (error) {
+    const localSvg = renderSimpleTikzToSvg(tikzSource);
+    if (localSvg) return localSvg;
+    throw new Error(`TikZ render service unavailable: ${error.message || "fetch failed"}`);
+  }
   const body = await response.text();
   if (!response.ok) {
     throw new Error(`TikZ render failed (${response.status}): ${body.slice(0, 180)}`);
@@ -1647,10 +2257,16 @@ async function replaceTikzWithSvgFigures(text) {
   while ((match = pattern.exec(source))) {
     output += source.slice(cursor, match.index);
     const tikzSource = normalizeTikz(match[1] || match[2] || "");
-    const svg = await renderTikzToSvg(tikzSource);
-    const publicUrl = await uploadGeneratedSvg(tikzSource, svg);
-    output += `[FIGURE:${publicUrl}]`;
-    figureCount += 1;
+    const originalBlock = match[0];
+    try {
+      const svg = await renderTikzToSvg(tikzSource);
+      const publicUrl = await uploadGeneratedSvg(tikzSource, svg);
+      output += `[FIGURE:${publicUrl}]`;
+      figureCount += 1;
+    } catch (error) {
+      console.warn("TikZ auto-conversion skipped; keeping original TikZ block:", error.message || error);
+      output += originalBlock;
+    }
     cursor = pattern.lastIndex;
   }
   output += source.slice(cursor);
@@ -2425,14 +3041,150 @@ app.get("/api/teacher/question-bank/subtopics", ensureCloud, requireAuth, requir
   return res.json({ topic, subtopics });
 });
 
+app.get("/api/student/practice/options", ensureCloud, requireAuth, requireRole("student"), async (_req, res) => {
+  let data = [];
+  try {
+    data = await fetchProblemRowsPaged({ columns: "id,difficulty,topic,sub_type" });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to load practice options." });
+  }
+  const dedup = new Map();
+  for (const row of data || []) {
+    const difficulty = String(row.difficulty || "").trim();
+    const topic = String(row.topic || "").trim();
+    const subType = String(row.sub_type || "").trim();
+    if (!difficulty || !topic || !subType) continue;
+    const key = `${difficulty}|||${topic}|||${subType}`;
+    if (!dedup.has(key)) dedup.set(key, { difficulty, topic, sub_type: subType });
+  }
+  return res.json({ options: [...dedup.values()].sort(compareComboOrder) });
+});
+
+app.post("/api/student/practice/question", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  const difficulty = String(req.body.difficulty || "").trim();
+  const topic = String(req.body.topic || "").trim();
+  const subType = String(req.body.sub_type || "").trim();
+  const excludeIds = new Set(
+    (Array.isArray(req.body.exclude_question_ids) ? req.body.exclude_question_ids : [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isInteger(id) && id > 0)
+  );
+  let query = supabase
+    .from("problems")
+    .select("id,question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex")
+    .limit(500);
+  if (difficulty) query = query.eq("difficulty", difficulty);
+  if (topic) query = query.eq("topic", topic);
+  if (subType) query = query.eq("sub_type", subType);
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+
+  const rows = Array.isArray(data) ? data : [];
+  const fresh = rows.filter((row) => !excludeIds.has(Number(row.id)));
+  const pool = fresh.length ? fresh : rows;
+  const question = pool[Math.floor(Math.random() * pool.length)] || null;
+  if (!question) return res.status(404).json({ error: "No question found for the selected practice scope." });
+  return res.json({ question });
+});
+
+app.post("/api/student/practice/submit", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  const questionId = Number(req.body.question_id);
+  const answerText = String(req.body.answer_text || "").trim();
+  const timeSpentSeconds = normalizeTimeSpentSeconds(req.body.time_spent_seconds);
+  if (!Number.isInteger(questionId) || questionId <= 0) return res.status(400).json({ error: "Valid question_id is required." });
+  if (!answerText) return res.status(400).json({ error: "answer_text is required." });
+
+  const { data: problem, error: problemError } = await supabase
+    .from("problems")
+    .select("id,answer_text,difficulty,topic,sub_type")
+    .eq("id", questionId)
+    .maybeSingle();
+  if (problemError) return res.status(500).json({ error: problemError.message });
+  if (!problem) return res.status(404).json({ error: "Question not found." });
+
+  const isCorrect = compareAnswer(answerText, problem.answer_text);
+  const { data: previousPractice, error: previousError } = await supabase
+    .from("student_practice_submissions")
+    .select("is_correct,submitted_at")
+    .eq("student_id", req.profile.user_id)
+    .order("submitted_at", { ascending: false })
+    .limit(2000);
+  if (previousError) {
+    if (isMissingTableError(previousError)) {
+      return res.status(500).json({
+        error: "Practice mode needs the new student_practice_submissions table. Please run the updated Supabase SQL schema once."
+      });
+    }
+    return res.status(500).json({ error: previousError.message });
+  }
+
+  const { data, error } = await supabase
+    .from("student_practice_submissions")
+    .insert({
+      student_id: req.profile.user_id,
+      question_id: questionId,
+      answer_text: answerText,
+      is_correct: isCorrect,
+      time_spent_seconds: timeSpentSeconds
+    })
+    .select("id,question_id,answer_text,is_correct,submitted_at,time_spent_seconds")
+    .single();
+  if (error) {
+    if (isMissingTableError(error)) {
+      return res.status(500).json({
+        error: "Practice mode needs the new student_practice_submissions table. Please run the updated Supabase SQL schema once."
+      });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  let tokenReward = 0;
+  let tokenBalance = null;
+  try {
+    const nextCorrectStreak = isCorrect ? computeTrailingCorrectStreak([...(previousPractice || [])].reverse()) + 1 : 0;
+    tokenReward = computeQuestionTokenReward({ isCorrect, timeSpentSeconds, nextCorrectStreak });
+    tokenBalance = await grantStudentTokens(req.profile.user_id, tokenReward, "practice_submission", {
+      question_id: questionId,
+      is_correct: isCorrect === true,
+      correct_streak_after_submit: nextCorrectStreak
+    });
+  } catch (_tokenError) {
+    tokenReward = 0;
+    tokenBalance = null;
+  }
+
+  return res.json({
+    submission: data,
+    is_correct: isCorrect,
+    correct_answer: problem.answer_text || "",
+    token_reward: tokenReward,
+    token_balance: tokenBalance
+  });
+});
+
 app.get("/api/client-config", ensureClientAuth, (_req, res) => {
   res.json({
     supabase_url: SUPABASE_URL,
     supabase_anon_key: SUPABASE_ANON_KEY,
     school_domain: SCHOOL_EMAIL_DOMAIN || null,
     timezone: APP_TIMEZONE,
-    google_client_id: GOOGLE_CLIENT_ID || null
+    google_client_id: GOOGLE_CLIENT_ID || null,
+    signup_disabled: DISABLE_SIGNUP || isAdminUploadOnlyMode
   });
+});
+
+app.post("/api/auth/check-email", ensureCloud, ensureClientAuth, async (req, res) => {
+  const email = normalizeEmail(req.body.email);
+  if (!email) return res.status(400).json({ error: "Email is required." });
+  if (!isAllowedSchoolEmail(email)) return res.json({ exists: false });
+
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .select("user_id")
+    .eq("email", email)
+    .limit(1);
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ exists: Array.isArray(data) && data.length > 0 });
 });
 
 app.post("/api/auth/register", ensureCloud, ensureClientAuth, async (req, res) => {
@@ -2489,21 +3241,309 @@ app.post("/api/auth/register", ensureCloud, ensureClientAuth, async (req, res) =
   });
 });
 
-app.get("/api/auth/me", ensureCloud, requireAuth, async (req, res) => {
-  const base = {
-    id: req.profile.user_id,
-    email: req.profile.email,
-    full_name: req.profile.full_name,
-    role: req.profile.role,
-    grade: req.profile.grade,
-    class_name: req.profile.class_name || null
+function normalizeAdminAccountPayload(item) {
+  const email = normalizeEmail(item?.email);
+  const password = String(item?.password || "").trim();
+  const role = String(item?.role || "student").trim().toLowerCase();
+  const fullName = String(item?.full_name || item?.name || "").trim();
+  const className = String(item?.class_name || item?.class || "").trim();
+  return {
+    email,
+    password,
+    role,
+    full_name: fullName || email,
+    class_name: role === "student" ? className || null : null
   };
-  if (req.profile.role !== "student") return res.json(base);
+}
+
+app.post("/api/admin/accounts/batch", ensureCloud, requireAuth, requireRole("admin"), async (req, res) => {
+  const accounts = Array.isArray(req.body.accounts) ? req.body.accounts : [];
+  if (!accounts.length) {
+    return res.status(400).json({ error: "accounts array is required." });
+  }
+  if (accounts.length > 200) {
+    return res.status(400).json({ error: "Create at most 200 accounts per batch." });
+  }
+
+  const results = [];
+  for (const raw of accounts) {
+    const item = normalizeAdminAccountPayload(raw);
+    const result = { email: item.email, role: item.role, ok: false };
+    try {
+      if (!item.email || !item.password) throw new Error("Email and password are required.");
+      if (!["student", "teacher"].includes(item.role)) throw new Error("Role must be student or teacher.");
+      if (item.password.length < 8) throw new Error("Password must be at least 8 characters.");
+      if (!isAllowedSchoolEmail(item.email)) throw new Error("Use a school email account.");
+
+      const metadata = {
+        full_name: item.full_name,
+        role: item.role,
+        grade: null,
+        class_name: item.role === "student" ? item.class_name : null
+      };
+      const { data, error } = await supabase.auth.admin.createUser({
+        email: item.email,
+        password: item.password,
+        email_confirm: true,
+        user_metadata: metadata
+      });
+      if (error) throw new Error(error.message);
+      const userId = data?.user?.id;
+      if (!userId) throw new Error("Supabase did not return a created user id.");
+
+      const profilePayload = {
+        user_id: userId,
+        email: item.email,
+        full_name: item.full_name,
+        role: item.role,
+        grade: null,
+        class_name: item.role === "student" ? item.class_name : null
+      };
+      const { error: profileError } = await supabase.from("user_profiles").upsert(profilePayload, { onConflict: "user_id" });
+      if (profileError) throw new Error(profileError.message);
+
+      result.ok = true;
+      result.user_id = userId;
+      result.class_name = profilePayload.class_name;
+    } catch (error) {
+      result.error = error.message || "Failed to create account.";
+    }
+    results.push(result);
+  }
+
+  const created = results.filter((x) => x.ok).length;
+  return res.status(created ? 201 : 400).json({
+    created,
+    failed: results.length - created,
+    results
+  });
+});
+
+app.get("/api/admin/accounts", ensureCloud, requireAuth, requireRole("admin"), async (_req, res) => {
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .select("user_id,email,full_name,role,grade,class_name,updated_at")
+    .order("role", { ascending: true })
+    .order("class_name", { ascending: true })
+    .order("full_name", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json({ accounts: data || [] });
+});
+
+app.delete("/api/admin/accounts/:userId", ensureCloud, requireAuth, requireRole("admin"), async (req, res) => {
+  const userId = String(req.params.userId || "").trim();
+  if (!userId) return res.status(400).json({ error: "User id is required." });
+  if (userId === String(req.profile.user_id || "")) {
+    return res.status(400).json({ error: "You cannot delete the admin account you are currently using." });
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("user_id,email,full_name,role")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (profileError) return res.status(500).json({ error: profileError.message });
+  if (!profile) return res.status(404).json({ error: "Account not found." });
+
+  const { error: authError } = await supabase.auth.admin.deleteUser(userId);
+  if (authError && !/not found|does not exist/i.test(authError.message || "")) {
+    return res.status(500).json({ error: authError.message });
+  }
+
+  const { error: cleanupError } = await supabase.from("user_profiles").delete().eq("user_id", userId);
+  if (cleanupError) return res.status(500).json({ error: cleanupError.message });
+
+  return res.json({ deleted: true, account: profile });
+});
+
+function normalizeAdminAccountUpdatePayload(body) {
+  const hasRole = Object.prototype.hasOwnProperty.call(body || {}, "role");
+  const role = hasRole ? String(body?.role || "").trim().toLowerCase() : "";
+  const hasFullName = Object.prototype.hasOwnProperty.call(body || {}, "full_name");
+  const fullName = hasFullName ? String(body?.full_name || "").trim() : "";
+  const hasGrade = Object.prototype.hasOwnProperty.call(body || {}, "grade");
+  const grade = hasGrade ? String(body?.grade || "").trim() : "";
+  const hasClassName = Object.prototype.hasOwnProperty.call(body || {}, "class_name");
+  const className = hasClassName ? String(body?.class_name || "").trim() : "";
+  const password = String(body?.password || "").trim();
+  return {
+    role,
+    full_name: fullName,
+    grade: grade || null,
+    class_name: className || null,
+    password,
+    has_role: hasRole && Boolean(role),
+    has_full_name: hasFullName,
+    has_grade: hasGrade,
+    has_class_name: hasClassName
+  };
+}
+
+async function updateAdminManagedAccount(userId, payload, options = {}) {
+  if (!userId) throw new Error("User id is required.");
+  const partial = Boolean(options.partial);
+  const { data: existing, error: existingError } = await supabase
+    .from("user_profiles")
+    .select("user_id,email,full_name,role,grade,class_name")
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
+  if (!existing) throw new Error("Account profile not found.");
+
+  const rawNext = normalizeAdminAccountUpdatePayload(payload);
+  const nextRole = partial && !rawNext.role ? String(existing.role || "") : rawNext.role;
+  const next = {
+    role: nextRole,
+    full_name: partial && !rawNext.has_full_name ? String(existing.full_name || "") : rawNext.full_name,
+    grade: partial && !rawNext.has_grade ? existing.grade : (nextRole === "student" ? rawNext.grade : null),
+    class_name: partial && !rawNext.has_class_name ? existing.class_name : (nextRole === "student" ? rawNext.class_name : null),
+    password: rawNext.password
+  };
+  if (!["student", "teacher", "admin"].includes(next.role)) throw new Error("Role must be student, teacher, or admin.");
+  if (!next.full_name) throw new Error("Full name is required.");
+  if (next.password && next.password.length < 8) throw new Error("Password must be at least 8 characters.");
+
+  const authUpdates = {
+    user_metadata: {
+      full_name: next.full_name,
+      role: next.role,
+      grade: next.grade,
+      class_name: next.class_name
+    }
+  };
+  if (next.password) authUpdates.password = next.password;
+
+  const { error: authError } = await supabase.auth.admin.updateUserById(userId, authUpdates);
+  if (authError) throw new Error(authError.message);
+
+  const { data, error } = await supabase
+    .from("user_profiles")
+    .update({
+      full_name: next.full_name,
+      role: next.role,
+      grade: next.grade,
+      class_name: next.class_name
+    })
+    .eq("user_id", userId)
+    .select("user_id,email,full_name,role,grade,class_name,updated_at")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Account profile not found.");
+  return data;
+}
+
+app.patch("/api/admin/accounts/batch", ensureCloud, requireAuth, requireRole("admin"), async (req, res) => {
+  const userIds = Array.isArray(req.body.user_ids)
+    ? req.body.user_ids.map((id) => String(id || "").trim()).filter(Boolean)
+    : [];
+  if (!userIds.length) return res.status(400).json({ error: "Select at least one account." });
+  if (userIds.length > 200) return res.status(400).json({ error: "Update at most 200 accounts per batch." });
+
+  const results = [];
+  for (const userId of userIds) {
+    const result = { user_id: userId, ok: false };
+    try {
+      const account = await updateAdminManagedAccount(userId, req.body || {}, { partial: true });
+      result.ok = true;
+      result.account = account;
+    } catch (error) {
+      result.error = error.message || "Failed to update account.";
+    }
+    results.push(result);
+  }
+  const updated = results.filter((row) => row.ok).length;
+  return res.status(updated ? 200 : 400).json({ updated, failed: results.length - updated, results });
+});
+
+app.patch("/api/admin/accounts/:userId", ensureCloud, requireAuth, requireRole("admin"), async (req, res) => {
+  const userId = String(req.params.userId || "").trim();
+  try {
+    const account = await updateAdminManagedAccount(userId, req.body || {});
+    return res.json({ account });
+  } catch (error) {
+    return res.status(400).json({ error: error.message || "Failed to update account." });
+  }
+});
+
+app.get("/api/admin/teacher-class-assignments", ensureCloud, requireAuth, requireRole("admin"), async (_req, res) => {
+  const { data: teachers, error: teacherError } = await supabase
+    .from("user_profiles")
+    .select("user_id,email,full_name")
+    .eq("role", "teacher")
+    .order("full_name", { ascending: true });
+  if (teacherError) return res.status(500).json({ error: teacherError.message });
+
+  const { data: students, error: studentError } = await supabase
+    .from("user_profiles")
+    .select("class_name")
+    .eq("role", "student");
+  if (studentError) return res.status(500).json({ error: studentError.message });
+
+  const classNames = [...new Set((students || []).map((s) => String(s.class_name || "").trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "en", { numeric: true, sensitivity: "base" })
+  );
+
+  const { data: assignments, error: assignmentError } = await supabase
+    .from("class_teacher_assignments")
+    .select("id,class_name,teacher_id,user_profiles(full_name,email)")
+    .order("class_name", { ascending: true });
+  if (assignmentError) {
+    if (isMissingTableError(assignmentError)) {
+      return res.json({ teachers: teachers || [], classes: classNames, assignments: [] });
+    }
+    return res.status(500).json({ error: assignmentError.message });
+  }
+
+  return res.json({
+    teachers: teachers || [],
+    classes: classNames,
+    assignments: Array.isArray(assignments) ? assignments : []
+  });
+});
+
+app.put("/api/admin/teacher-class-assignments", ensureCloud, requireAuth, requireRole("admin"), async (req, res) => {
+  const incoming = Array.isArray(req.body.assignments) ? req.body.assignments : [];
+  const rows = incoming
+    .map((row) => ({
+      class_name: String(row?.class_name || "").trim(),
+      teacher_id: String(row?.teacher_id || "").trim()
+    }))
+    .filter((row) => row.class_name && row.teacher_id);
+
+  const { error: clearError } = await supabase.from("class_teacher_assignments").delete().neq("id", 0);
+  if (clearError) return res.status(500).json({ error: clearError.message });
+
+  if (rows.length) {
+    const { error: insertError } = await supabase
+      .from("class_teacher_assignments")
+      .upsert(rows, { onConflict: "class_name,teacher_id" });
+    if (insertError) return res.status(500).json({ error: insertError.message });
+  }
+
+  return res.json({ saved: rows.length });
+});
+
+app.get("/api/auth/me", ensureCloud, requireAuth, async (req, res) => {
+  let profile = req.profile;
+  try {
+    profile = (await fetchLatestStudentProfile(req.profile)) || req.profile;
+  } catch (_error) {
+    profile = req.profile;
+  }
+  const base = {
+    id: profile.user_id,
+    email: profile.email,
+    full_name: profile.full_name,
+    role: profile.role,
+    grade: profile.grade,
+    class_name: profile.class_name || null
+  };
+  if (profile.role !== "student") return res.json(base);
 
   try {
     const [avatarData, frameData] = await Promise.all([
-      fetchAvatarCatalogForStudent(req.profile.user_id),
-      fetchFrameCatalogForStudent(req.profile.user_id).catch(() => [])
+      fetchAvatarCatalogForStudent(profile.user_id),
+      fetchFrameCatalogForStudent(profile.user_id).catch(() => [])
     ]);
     const selected = (avatarData.avatars || []).find((a) => Number(a.id) === Number(avatarData.selected_avatar_id)) || null;
     const selectedFrame = (frameData || []).find((f) => f.selected) || null;
@@ -2587,9 +3627,24 @@ app.get("/api/student/initial-assessment", ensureCloud, requireAuth, requireRole
     const completed = await hasCompletedInitialAssessment(req.profile.user_id);
     if (completed) return res.json({ completed: true, assessment: completed, questions: [] });
     const questions = await buildInitialAssessmentQuestions(req.profile);
-    return res.json({ completed: false, questions });
+    const debug = await buildInitialAssessmentDebug(req.profile, questions);
+    if (!questions.length) {
+      const placement = await initializeProgressFromAssessment(req.profile, {}, {});
+      return res.json({ completed: true, skipped: true, counts: { lv2: 0, lv3: 0, lv4: 0, lv5: 0 }, totals: { lv2: 0, lv3: 0, lv4: 0, lv5: 0 }, debug, ...placement });
+    }
+    return res.json({ completed: false, questions, debug });
   } catch (error) {
     return res.status(500).json({ error: error.message || "Failed to build initial assessment." });
+  }
+});
+
+app.get("/api/student/initial-assessment/debug", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  try {
+    const completed = await hasCompletedInitialAssessment(req.profile.user_id);
+    const debug = await buildInitialAssessmentDebug(req.profile);
+    return res.json({ completed: Boolean(completed), assessment: completed || null, debug });
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to debug initial assessment." });
   }
 });
 
@@ -2608,14 +3663,40 @@ app.post("/api/student/initial-assessment/submit", ensureCloud, requireAuth, req
     if (error) throw new Error(error.message);
     const problemById = new Map((problems || []).map((p) => [Number(p.id), p]));
     const counts = { lv2: 0, lv3: 0, lv4: 0, lv5: 0 };
+    const totals = { lv2: 0, lv3: 0, lv4: 0, lv5: 0 };
     for (const answer of answers) {
       const problem = problemById.get(Number(answer?.question_id));
       const difficulty = String(problem?.difficulty || "").trim();
       if (!Object.prototype.hasOwnProperty.call(counts, difficulty)) continue;
-      if (compareAnswer(answer?.answer_text, problem?.answer_text) === true) counts[difficulty] += 1;
+      totals[difficulty] += 1;
+      if (!isDontKnowAnswer(answer?.answer_text) && compareAnswer(answer?.answer_text, problem?.answer_text) === true) {
+        counts[difficulty] += 1;
+      }
     }
-    const placement = await initializeProgressFromAssessment(req.profile, counts);
-    return res.json({ completed: true, counts, ...placement });
+    const placement = await initializeProgressFromAssessment(req.profile, counts, totals);
+    let tokenBalance = null;
+    try {
+      tokenBalance = await grantStudentTokens(
+        req.profile.user_id,
+        INITIAL_ASSESSMENT_COMPLETION_TOKENS,
+        "initial_assessment_completion",
+        {
+          start_difficulty: placement.start_difficulty || placement.start_level || null,
+          counts,
+          totals
+        }
+      );
+    } catch (_tokenError) {
+      tokenBalance = null;
+    }
+    return res.json({
+      completed: true,
+      counts,
+      totals,
+      token_reward: INITIAL_ASSESSMENT_COMPLETION_TOKENS,
+      token_balance: tokenBalance,
+      ...placement
+    });
   } catch (error) {
     return res.status(500).json({ error: error.message || "Failed to submit initial assessment." });
   }
@@ -2880,6 +3961,13 @@ app.post("/api/student/submit/:questionId/wrong-feedback", ensureCloud, requireA
 });
 
 app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  let studentProfile = req.profile;
+  try {
+    studentProfile = (await fetchLatestStudentProfile(req.profile)) || req.profile;
+  } catch (freshProfileError) {
+    return res.status(500).json({ error: freshProfileError.message });
+  }
+
   const { data: submissions, error } = await supabase
     .from("student_submissions")
     .select("assignment_date,is_correct, time_spent_seconds, submitted_at")
@@ -2887,7 +3975,14 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
   if (error) return res.status(500).json({ error: error.message });
 
   const submissionRows = Array.isArray(submissions) ? submissions : [];
-  const stats = computeSubmissionStats(submissionRows);
+  let practiceRows = [];
+  try {
+    practiceRows = await fetchPracticeSubmissionsForStudents(req.profile.user_id);
+  } catch (_practiceError) {
+    practiceRows = [];
+  }
+  const performanceRows = [...submissionRows, ...practiceRows];
+  const stats = computeSubmissionStats(performanceRows);
   const todayKey = getTodayDateString();
   const todayRows = submissionRows.filter((row) => String(row.assignment_date || "") === todayKey);
   const submittedToday = todayRows.length;
@@ -2901,30 +3996,39 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
     tokenBalance = 0;
   }
   let radar = { labels: ["Combo", "Aim", "Flash", "Grind", "Fortune"], student: {}, class_avg: {} };
+  let aspectValues = {};
+  let aspectLeaders = [];
   let classTitles = [];
+  let classmatesPower = [];
   try {
-    const classAnalytics = await buildClassAnalytics(req.profile.class_name, req.profile.user_id, submissionRows);
+    const classAnalytics = await buildClassAnalytics(studentProfile.class_name, studentProfile.user_id, performanceRows);
     radar = {
       labels: classAnalytics.labels,
       student: classAnalytics.student,
       class_avg: classAnalytics.class_avg
     };
+    aspectValues = classAnalytics.student_values || {};
+    aspectLeaders = classAnalytics.leaders || [];
     classTitles = classAnalytics.titles || [];
+    classmatesPower = classAnalytics.classmates_power || [];
   } catch (_e) {
     // keep stats endpoint available even if class analytics fails
   }
   return res.json({
-    student_id: req.profile.user_id,
-    student_name: req.profile.full_name,
-    grade: req.profile.grade,
-    class_name: req.profile.class_name || null,
+    student_id: studentProfile.user_id,
+    student_name: studentProfile.full_name,
+    grade: studentProfile.grade,
+    class_name: studentProfile.class_name || null,
     token_balance: tokenBalance,
     today_date: todayKey,
     submitted_today: submittedToday,
     correct_today: correctToday,
     finished_today: finishedToday,
     radar,
+    aspect_values: aspectValues,
+    aspect_leaders: aspectLeaders,
     class_titles: classTitles,
+    classmates_power: classmatesPower,
     ...stats
   });
 });
@@ -3009,13 +4113,20 @@ app.get("/api/student/alerts", ensureCloud, requireAuth, requireRole("student"),
   return res.json({ alerts: Array.isArray(data) ? data : [] });
 });
 
-app.get("/api/teacher/alerts", ensureCloud, requireAuth, requireRole("teacher"), async (_req, res) => {
+app.get("/api/teacher/alerts", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const { data, error } = await supabase
     .from("learning_alerts")
     .select("id,student_id,difficulty,topic,sub_type,message,created_at,is_resolved,user_profiles(full_name,email,class_name)")
     .order("created_at", { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ alerts: Array.isArray(data) ? data : [] });
+  let alerts = Array.isArray(data) ? data : [];
+  try {
+    const allowedClasses = await getTeacherAllowedClassNames(req.profile);
+    alerts = filterRowsByAllowedClasses(alerts, allowedClasses);
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
+  return res.json({ alerts });
 });
 
 app.get("/api/teacher/alerts/:alertId/wrong-answers", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
@@ -3028,6 +4139,13 @@ app.get("/api/teacher/alerts/:alertId/wrong-answers", ensureCloud, requireAuth, 
     .maybeSingle();
   if (alertError) return res.status(500).json({ error: alertError.message });
   if (!alertRow) return res.status(404).json({ error: "Alert not found." });
+  try {
+    if (!(await ensureTeacherCanAccessStudent(req.profile, alertRow.student_id))) {
+      return res.status(403).json({ error: "You do not have permission to access this student." });
+    }
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { data, error } = await supabase
     .from("student_submissions")
@@ -3053,6 +4171,16 @@ app.get("/api/teacher/progress", ensureCloud, requireAuth, requireRole("teacher"
   const className = String(req.query.class_name || "").trim();
   const topic = String(req.query.topic || "").trim();
   const subType = String(req.query.sub_type || "").trim();
+  let allowedClasses = [];
+  try {
+    allowedClasses = await getTeacherAllowedClassNames(req.profile);
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
+  if (Array.isArray(allowedClasses)) {
+    if (!allowedClasses.length) return res.json({ students: [] });
+    if (className && !allowedClasses.includes(className)) return res.json({ students: [] });
+  }
 
   let profileQuery = supabase
     .from("user_profiles")
@@ -3061,6 +4189,7 @@ app.get("/api/teacher/progress", ensureCloud, requireAuth, requireRole("teacher"
     .order("class_name", { ascending: true })
     .order("full_name", { ascending: true });
   if (className) profileQuery = profileQuery.eq("class_name", className);
+  else if (Array.isArray(allowedClasses)) profileQuery = profileQuery.in("class_name", allowedClasses);
   const { data: students, error: studentError } = await profileQuery;
   if (studentError) return res.status(500).json({ error: studentError.message });
   const studentRows = Array.isArray(students) ? students : [];
@@ -3102,6 +4231,13 @@ app.post("/api/teacher/alerts/:alertId/resolve", ensureCloud, requireAuth, requi
     .maybeSingle();
   if (alertError) return res.status(500).json({ error: alertError.message });
   if (!alertRow) return res.status(404).json({ error: "Alert not found." });
+  try {
+    if (!(await ensureTeacherCanAccessStudent(req.profile, alertRow.student_id))) {
+      return res.status(403).json({ error: "You do not have permission to resolve this alert." });
+    }
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { error: updateAlertError } = await supabase.from("learning_alerts").update({ is_resolved: true }).eq("id", alertId);
   if (updateAlertError) return res.status(500).json({ error: updateAlertError.message });
@@ -3121,12 +4257,23 @@ app.post("/api/teacher/alerts/:alertId/resolve", ensureCloud, requireAuth, requi
 app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const date = String(req.query.date || "").trim() || getTodayDateString();
   const groupId = Number(req.query.group_id || 0);
+  let allowedClasses = [];
+  try {
+    allowedClasses = await getTeacherAllowedClassNames(req.profile);
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
+  if (Array.isArray(allowedClasses) && !allowedClasses.length) {
+    return res.json({ date, group_id: groupId > 0 ? groupId : null, total_students: 0, students: [] });
+  }
 
-  const { data: students, error: studentError } = await supabase
+  let studentQuery = supabase
     .from("user_profiles")
     .select("user_id, full_name, email, class_name")
     .eq("role", "student")
     .order("full_name", { ascending: true });
+  if (Array.isArray(allowedClasses)) studentQuery = studentQuery.in("class_name", allowedClasses);
+  const { data: students, error: studentError } = await studentQuery;
 
   if (studentError) return res.status(500).json({ error: studentError.message });
   let filteredStudents = Array.isArray(students) ? students : [];
@@ -3281,9 +4428,21 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
 app.delete("/api/teacher/students/:studentId/records", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const studentId = String(req.params.studentId || "").trim();
   if (!studentId) return res.status(400).json({ error: "studentId is required." });
+  try {
+    if (!(await ensureTeacherCanAccessStudent(req.profile, studentId))) {
+      return res.status(403).json({ error: "You do not have permission to edit this student." });
+    }
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { error: submissionError } = await supabase.from("student_submissions").delete().eq("student_id", studentId);
   if (submissionError) return res.status(500).json({ error: submissionError.message });
+
+  const { error: practiceSubmissionError } = await supabase.from("student_practice_submissions").delete().eq("student_id", studentId);
+  if (practiceSubmissionError && !isMissingTableError(practiceSubmissionError)) {
+    return res.status(500).json({ error: practiceSubmissionError.message });
+  }
 
   const { error: assignmentError } = await supabase.from("daily_assignments").delete().eq("student_id", studentId);
   if (assignmentError) return res.status(500).json({ error: assignmentError.message });
@@ -3300,6 +4459,13 @@ app.delete("/api/teacher/students/:studentId/records", ensureCloud, requireAuth,
 app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const studentId = String(req.params.studentId || "").trim();
   if (!studentId) return res.status(400).json({ error: "studentId is required." });
+  try {
+    if (!(await ensureTeacherCanAccessStudent(req.profile, studentId))) {
+      return res.status(403).json({ error: "You do not have permission to view this student." });
+    }
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { data: profile, error: profileError } = await supabase
     .from("user_profiles")
@@ -3320,13 +4486,26 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
   if (submissionError) return res.status(500).json({ error: submissionError.message });
 
   const rows = Array.isArray(submissions) ? submissions : [];
-  const stats = computeSubmissionStats(rows);
-  let radar = { labels: ["Combo", "Aim", "Flash", "Grind", "Fortune"], student: {}, class_avg: {} };
-  let classTitles = [];
+  let practiceRows = [];
   try {
-    const classAnalytics = await buildClassAnalytics(profile.class_name, profile.user_id, rows);
+    practiceRows = await fetchPracticeSubmissionsForStudents(studentId);
+  } catch (_practiceError) {
+    practiceRows = [];
+  }
+  const performanceRows = [...rows, ...practiceRows];
+  const stats = computeSubmissionStats(performanceRows);
+  let radar = { labels: ["Combo", "Aim", "Flash", "Grind", "Fortune"], student: {}, class_avg: {} };
+  let aspectValues = {};
+  let aspectLeaders = [];
+  let classTitles = [];
+  let classmatesPower = [];
+  try {
+    const classAnalytics = await buildClassAnalytics(profile.class_name, profile.user_id, performanceRows);
     radar = { labels: classAnalytics.labels, student: classAnalytics.student, class_avg: classAnalytics.class_avg };
+    aspectValues = classAnalytics.student_values || {};
+    aspectLeaders = classAnalytics.leaders || [];
     classTitles = classAnalytics.titles || [];
+    classmatesPower = classAnalytics.classmates_power || [];
   } catch (_e) {
     // keep endpoint available
   }
@@ -3335,7 +4514,10 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
     stats,
     records: rows,
     radar,
-    class_titles: classTitles
+    aspect_values: aspectValues,
+    aspect_leaders: aspectLeaders,
+    class_titles: classTitles,
+    classmates_power: classmatesPower
   });
 });
 
@@ -3343,13 +4525,25 @@ app.put("/api/teacher/students/:studentId/class", ensureCloud, requireAuth, requ
   const studentId = String(req.params.studentId || "").trim();
   const className = String(req.body.class_name || "").trim();
   if (!studentId) return res.status(400).json({ error: "studentId is required." });
-  const { error } = await supabase
+  try {
+    if (!(await ensureTeacherCanAccessStudent(req.profile, studentId)) || !(await ensureTeacherCanAccessClass(req.profile, className))) {
+      return res.status(403).json({ error: "You do not have permission to move this student to that class." });
+    }
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
+  const { data, error } = await supabase
     .from("user_profiles")
     .update({ class_name: className || null })
     .eq("user_id", studentId)
-    .eq("role", "student");
+    .eq("role", "student")
+    .select("user_id,full_name,email,class_name");
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ student_id: studentId, class_name: className || null });
+  if (!Array.isArray(data) || data.length !== 1) {
+    return res.status(404).json({ error: "Student profile was not updated. Please refresh the student list and try again." });
+  }
+  await updateStudentAuthClassMetadata([studentId], className || null);
+  return res.json({ student_id: studentId, class_name: className || null, updated: 1, profiles: data });
 });
 
 app.put("/api/teacher/students/class", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
@@ -3358,14 +4552,37 @@ app.put("/api/teacher/students/class", ensureCloud, requireAuth, requireRole("te
     : [];
   const className = String(req.body.class_name || "").trim();
   if (!studentIds.length) return res.status(400).json({ error: "student_ids are required." });
+  try {
+    if (!(await ensureTeacherCanAccessClass(req.profile, className))) {
+      return res.status(403).json({ error: "You do not have permission to assign that class." });
+    }
+    for (const studentId of studentIds) {
+      if (!(await ensureTeacherCanAccessStudent(req.profile, studentId))) {
+        return res.status(403).json({ error: "You do not have permission to edit one or more selected students." });
+      }
+    }
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("user_profiles")
     .update({ class_name: className || null })
     .in("user_id", studentIds)
-    .eq("role", "student");
+    .eq("role", "student")
+    .select("user_id,full_name,email,class_name");
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ updated: studentIds.length, class_name: className || null });
+  const updatedRows = Array.isArray(data) ? data : [];
+  if (updatedRows.length !== studentIds.length) {
+    return res.status(409).json({
+      error: `Only ${updatedRows.length} of ${studentIds.length} selected student profile(s) were updated. Please refresh the student list and try again.`,
+      updated: updatedRows.length,
+      expected: studentIds.length,
+      profiles: updatedRows
+    });
+  }
+  await updateStudentAuthClassMetadata(updatedRows.map((row) => row.user_id), className || null);
+  return res.json({ updated: updatedRows.length, class_name: className || null, profiles: updatedRows });
 });
 
 function normalizeScopePayload(scopes) {
@@ -3411,6 +4628,11 @@ function normalizeScopePayload(scopes) {
 app.get("/api/teacher/classes/:className/scope", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const className = String(req.params.className || "").trim();
   if (!className) return res.status(400).json({ error: "className is required." });
+  try {
+    if (!(await ensureTeacherCanAccessClass(req.profile, className))) return res.status(403).json({ error: "You do not have permission to access this class." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { data, error } = await supabase
     .from("class_scopes")
@@ -3426,6 +4648,11 @@ app.get("/api/teacher/classes/:className/scope", ensureCloud, requireAuth, requi
 app.put("/api/teacher/classes/:className/scope", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const className = String(req.params.className || "").trim();
   if (!className) return res.status(400).json({ error: "className is required." });
+  try {
+    if (!(await ensureTeacherCanAccessClass(req.profile, className))) return res.status(403).json({ error: "You do not have permission to edit this class." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const normalized = normalizeScopePayload(req.body.scopes);
   const { error: clearError } = await supabase.from("class_scopes").delete().eq("class_name", className);
@@ -3447,11 +4674,13 @@ app.put("/api/teacher/classes/:className/scope", ensureCloud, requireAuth, requi
   return res.json({ saved: normalized.length });
 });
 
-app.get("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher"), async (_req, res) => {
-  const { data: groups, error: groupError } = await supabase
+app.get("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  let groupQuery = supabase
     .from("study_groups")
     .select("id, name, created_at")
     .order("name", { ascending: true });
+  if (req.profile.role === "teacher") groupQuery = groupQuery.or(`owner_teacher_id.eq.${req.profile.user_id},owner_teacher_id.is.null`);
+  const { data: groups, error: groupError } = await groupQuery;
   if (groupError) return res.status(500).json({ error: groupError.message });
 
   const { data: members, error: memberError } = await supabase
@@ -3500,11 +4729,20 @@ app.get("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher"),
   return res.json(output);
 });
 
-app.get("/api/teacher/classes", ensureCloud, requireAuth, requireRole("teacher"), async (_req, res) => {
-  const { data: students, error: studentError } = await supabase
+app.get("/api/teacher/classes", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
+  let allowedClasses = [];
+  try {
+    allowedClasses = await getTeacherAllowedClassNames(req.profile);
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
+  if (Array.isArray(allowedClasses) && !allowedClasses.length) return res.json([]);
+  let studentQuery = supabase
     .from("user_profiles")
     .select("user_id,full_name,email,class_name")
     .eq("role", "student");
+  if (Array.isArray(allowedClasses)) studentQuery = studentQuery.in("class_name", allowedClasses);
+  const { data: students, error: studentError } = await studentQuery;
   if (studentError) return res.status(500).json({ error: studentError.message });
   const classMap = new Map();
   for (const student of students || []) {
@@ -3544,12 +4782,14 @@ app.get("/api/teacher/classes", ensureCloud, requireAuth, requireRole("teacher")
 app.post("/api/teacher/classes", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Class name is required." });
+  if (!(await ensureTeacherCanAccessClass(req.profile, name))) return res.status(403).json({ error: "Admin must assign this class to you first." });
   return res.status(201).json({ name });
 });
 
 app.delete("/api/teacher/classes/:className", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const className = String(req.params.className || "").trim();
   if (!className) return res.status(400).json({ error: "className is required." });
+  if (!(await ensureTeacherCanAccessClass(req.profile, className))) return res.status(403).json({ error: "You do not have permission to delete this class." });
   const { error: profileError } = await supabase.from("user_profiles").update({ class_name: null }).eq("class_name", className);
   if (profileError) return res.status(500).json({ error: profileError.message });
   await supabase.from("class_scopes").delete().eq("class_name", className);
@@ -3560,7 +4800,7 @@ app.post("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher")
   const name = String(req.body.name || "").trim();
   if (!name) return res.status(400).json({ error: "Group name is required." });
 
-  const { data, error } = await supabase.from("study_groups").insert({ name }).select("*").single();
+  const { data, error } = await supabase.from("study_groups").insert({ name, owner_teacher_id: req.profile.user_id }).select("*").single();
   if (error) return res.status(400).json({ error: error.message });
   return res.status(201).json(data);
 });
@@ -3568,6 +4808,11 @@ app.post("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher")
 app.delete("/api/teacher/groups/:groupId", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const groupId = Number(req.params.groupId);
   if (!Number.isInteger(groupId) || groupId <= 0) return res.status(400).json({ error: "Valid groupId is required." });
+  try {
+    if (!(await ensureTeacherCanAccessGroup(req.profile, groupId))) return res.status(403).json({ error: "You do not have permission to delete this group." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
   await supabase.from("student_group_memberships").delete().eq("group_id", groupId);
   await supabase.from("study_group_scopes").delete().eq("group_id", groupId);
   const { error } = await supabase.from("study_groups").delete().eq("id", groupId);
@@ -3578,6 +4823,11 @@ app.delete("/api/teacher/groups/:groupId", ensureCloud, requireAuth, requireRole
 app.get("/api/teacher/students/:studentId/groups", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const studentId = String(req.params.studentId || "").trim();
   if (!studentId) return res.status(400).json({ error: "studentId is required." });
+  try {
+    if (!(await ensureTeacherCanAccessStudent(req.profile, studentId))) return res.status(403).json({ error: "You do not have permission to view this student." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { data, error } = await supabase
     .from("student_group_memberships")
@@ -3590,10 +4840,22 @@ app.get("/api/teacher/students/:studentId/groups", ensureCloud, requireAuth, req
 app.put("/api/teacher/students/:studentId/groups", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
   const studentId = String(req.params.studentId || "").trim();
   if (!studentId) return res.status(400).json({ error: "studentId is required." });
+  try {
+    if (!(await ensureTeacherCanAccessStudent(req.profile, studentId))) return res.status(403).json({ error: "You do not have permission to edit this student." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const groupIds = Array.isArray(req.body.group_ids)
     ? req.body.group_ids.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0)
     : [];
+  for (const groupId of groupIds) {
+    try {
+      if (!(await ensureTeacherCanAccessGroup(req.profile, groupId))) return res.status(403).json({ error: "You do not have permission to use one or more selected groups." });
+    } catch (accessError) {
+      return res.status(500).json({ error: accessError.message });
+    }
+  }
 
   const { error: clearError } = await supabase.from("student_group_memberships").delete().eq("student_id", studentId);
   if (clearError) return res.status(500).json({ error: clearError.message });
@@ -3616,6 +4878,11 @@ app.get("/api/teacher/groups/:groupId/stats", ensureCloud, requireAuth, requireR
   const { data: group, error: groupError } = await supabase.from("study_groups").select("*").eq("id", groupId).maybeSingle();
   if (groupError) return res.status(500).json({ error: groupError.message });
   if (!group) return res.status(404).json({ error: "Group not found." });
+  try {
+    if (!(await ensureTeacherCanAccessGroup(req.profile, groupId))) return res.status(403).json({ error: "You do not have permission to view this group." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { data: members, error: memberError } = await supabase
     .from("student_group_memberships")
@@ -3674,6 +4941,11 @@ app.get("/api/teacher/groups/:groupId/scope", ensureCloud, requireAuth, requireR
   const { data: group, error: groupError } = await supabase.from("study_groups").select("id,name").eq("id", groupId).maybeSingle();
   if (groupError) return res.status(500).json({ error: groupError.message });
   if (!group) return res.status(404).json({ error: "Group not found." });
+  try {
+    if (!(await ensureTeacherCanAccessGroup(req.profile, groupId))) return res.status(403).json({ error: "You do not have permission to view this group." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const { data, error } = await supabase
     .from("study_group_scopes")
@@ -3691,6 +4963,11 @@ app.put("/api/teacher/groups/:groupId/scope", ensureCloud, requireAuth, requireR
   const groupId = Number(req.params.groupId);
   if (!Number.isInteger(groupId) || groupId <= 0) {
     return res.status(400).json({ error: "Valid groupId is required." });
+  }
+  try {
+    if (!(await ensureTeacherCanAccessGroup(req.profile, groupId))) return res.status(403).json({ error: "You do not have permission to edit this group." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
   }
 
   const incoming = Array.isArray(req.body.scopes) ? req.body.scopes : [];
@@ -3755,6 +5032,11 @@ app.post("/api/teacher/groups/:groupId/add-students", ensureCloud, requireAuth, 
   if (!Number.isInteger(groupId) || groupId <= 0) {
     return res.status(400).json({ error: "Valid groupId is required." });
   }
+  try {
+    if (!(await ensureTeacherCanAccessGroup(req.profile, groupId))) return res.status(403).json({ error: "You do not have permission to edit this group." });
+  } catch (accessError) {
+    return res.status(500).json({ error: accessError.message });
+  }
 
   const studentIds = Array.isArray(req.body.student_ids)
     ? req.body.student_ids.map((x) => String(x || "").trim()).filter(Boolean)
@@ -3765,12 +5047,16 @@ app.post("/api/teacher/groups/:groupId/add-students", ensureCloud, requireAuth, 
 
   const { data: validStudents, error: validError } = await supabase
     .from("user_profiles")
-    .select("user_id")
+    .select("user_id,class_name")
     .eq("role", "student")
     .in("user_id", studentIds);
   if (validError) return res.status(500).json({ error: validError.message });
+  const allowedClasses = await getTeacherAllowedClassNames(req.profile);
+  const scopedStudents = Array.isArray(allowedClasses)
+    ? (validStudents || []).filter((student) => allowedClasses.includes(String(student.class_name || "").trim()))
+    : validStudents || [];
 
-  const validStudentIds = (validStudents || []).map((s) => String(s.user_id || "")).filter(Boolean);
+  const validStudentIds = (scopedStudents || []).map((s) => String(s.user_id || "")).filter(Boolean);
   if (!validStudentIds.length) {
     return res.status(400).json({ error: "No valid student ids found." });
   }
@@ -3809,20 +5095,80 @@ app.post("/api/teacher/groups/:groupId/remove-students", ensureCloud, requireAut
   return res.json({ removed: (data || []).length });
 });
 
+function problemMatchesOptionFilters(row, filters, omitField = "") {
+  const difficulty = String(row?.difficulty || "").trim();
+  const grade = String(row?.grade || "").trim();
+  const topic = String(row?.topic || "").trim();
+  const subType = String(row?.sub_type || "").trim();
+  const latex = String(row?.latex_code || "").trim();
+  const selectedDifficulty = String(filters.difficulty || "").trim();
+  const selectedGrade = String(filters.grade || "").trim();
+  const selectedTopic = String(filters.topic || "").trim().toLowerCase();
+  const selectedSubType = String(filters.sub_type || "").trim().toLowerCase();
+  const selectedSearch = String(filters.q || "").trim().toLowerCase();
+
+  if (omitField !== "difficulty" && selectedDifficulty && difficulty !== selectedDifficulty) return false;
+  if (omitField !== "grade" && selectedGrade && grade !== selectedGrade) return false;
+  if (omitField !== "topic" && selectedTopic && !topic.toLowerCase().includes(selectedTopic)) return false;
+  if (omitField !== "sub_type" && selectedSubType && !subType.toLowerCase().includes(selectedSubType)) return false;
+  if (
+    omitField !== "q" &&
+    selectedSearch &&
+    ![latex, topic, subType].some((value) => String(value || "").toLowerCase().includes(selectedSearch))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+app.get("/api/problems/filter-options", ensureCloud, requireAdminUploadAccess, async (req, res) => {
+  try {
+    const rows = await fetchProblemRowsPaged({ columns: "id,difficulty,topic,sub_type,grade,latex_code" });
+    const fields = ["grade", "difficulty", "topic", "sub_type"];
+    const options = {};
+    for (const field of fields) {
+      options[field] = [
+        ...new Set(
+          rows
+            .filter((row) => problemMatchesOptionFilters(row, req.query, field))
+            .map((row) => String(row?.[field] || "").trim())
+            .filter(Boolean)
+        )
+      ].sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }));
+    }
+    return res.json(options);
+  } catch (error) {
+    return res.status(500).json({ error: error.message || "Failed to load filter options." });
+  }
+});
+
 app.get("/api/problems", ensureCloud, requireAdminUploadAccess, async (req, res) => {
   const { difficulty, topic, sub_type, grade, q } = req.query;
 
-  let query = supabase.from("problems").select("*").order("id", { ascending: false });
+  const pageSize = 1000;
+  let from = 0;
+  const rows = [];
+  for (;;) {
+    let query = supabase
+      .from("problems")
+      .select("*")
+      .order("id", { ascending: false })
+      .range(from, from + pageSize - 1);
 
-  if (difficulty) query = query.eq("difficulty", difficulty);
-  if (grade) query = query.eq("grade", grade);
-  if (topic) query = query.ilike("topic", `%${topic}%`);
-  if (sub_type) query = query.ilike("sub_type", `%${sub_type}%`);
-  if (q) query = query.or(`latex_code.ilike.%${q}%,topic.ilike.%${q}%,sub_type.ilike.%${q}%`);
+    if (difficulty) query = query.eq("difficulty", difficulty);
+    if (grade) query = query.eq("grade", grade);
+    if (topic) query = query.ilike("topic", `%${topic}%`);
+    if (sub_type) query = query.ilike("sub_type", `%${sub_type}%`);
+    if (q) query = query.or(`latex_code.ilike.%${q}%,topic.ilike.%${q}%,sub_type.ilike.%${q}%`);
 
-  const { data, error } = await query;
-  if (error) return res.status(500).json({ error: error.message });
-  return res.json(data);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    const page = Array.isArray(data) ? data : [];
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+  return res.json(rows);
 });
 
 app.post("/api/problems", ensureCloud, requireAdminUploadAccess, async (req, res) => {

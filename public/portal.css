@@ -59,10 +59,117 @@ body {
   margin: 0 0 0.55rem;
 }
 
+.profile-tab-strip {
+  align-items: flex-end;
+  border-bottom: 1px solid #c7d7ec;
+  display: flex;
+  gap: 0.18rem;
+  margin: -0.2rem -0.2rem 0.9rem;
+  overflow-x: auto;
+  padding: 0.15rem 0.35rem 0;
+}
+
+.profile-tab {
+  background: #edf4ff;
+  border: 1px solid #c7d7ec;
+  border-bottom: 0;
+  border-radius: 12px 12px 0 0;
+  color: #244469;
+  cursor: pointer;
+  font-weight: 800;
+  margin-top: 0;
+  padding: 0.62rem 1rem 0.58rem;
+  position: relative;
+}
+
+.profile-tab:hover {
+  background: #f6fbff;
+}
+
+.profile-tab.active {
+  background: #ffffff;
+  color: #0a243f;
+  margin-bottom: -1px;
+  padding-bottom: 0.66rem;
+  z-index: 1;
+}
+
+.profile-tab-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.profile-tab-panel[hidden] {
+  display: none !important;
+}
+
+.profile-section-block {
+  margin-top: 0.2rem;
+}
+
+.practice-picker {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.45fr) minmax(180px, 1fr) minmax(220px, 1.2fr) auto auto;
+}
+
+.practice-picker select {
+  min-width: 0;
+}
+
+.section-title-row {
+  display: block;
+  margin: 1rem 0 0.5rem;
+  width: 100%;
+}
+
+.section-title-row h4 {
+  margin: 0;
+}
+
+.learning-status-table th,
+.learning-status-table td {
+  vertical-align: middle;
+}
+
+.learning-status-badge {
+  border-radius: 999px;
+  display: inline-block;
+  font-weight: 900;
+  min-width: 7rem;
+  padding: 0.32rem 0.72rem;
+  text-align: center;
+}
+
+.link-button {
+  background: transparent;
+  border: 0;
+  color: #0d5fa6;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  margin-top: 0;
+  padding: 0;
+  text-align: left;
+}
+
+.link-button:hover {
+  background: transparent;
+  color: #083763;
+  text-decoration: underline;
+}
+
 .auth-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 1rem;
+}
+
+#auth-card .auth-grid {
+  max-width: 560px;
+}
+
+#auth-card .panel-form {
+  width: 100%;
 }
 
 .panel-form {
@@ -104,6 +211,13 @@ textarea {
   resize: vertical;
   min-height: 76px;
   font-family: "JetBrains Mono", monospace;
+}
+
+#admin-account-batch-input {
+  width: min(100%, 980px);
+  min-height: 250px;
+  white-space: pre;
+  overflow: auto;
 }
 
 button {
@@ -174,13 +288,15 @@ button.secondary:hover {
 
 #student-daily-panel.floating-daily-overlay {
   position: fixed;
-  top: 9.4rem;
+  top: 12.8rem;
   left: 50%;
   transform: translateX(-50%);
-  width: min(1120px, calc(100vw - 3rem));
-  max-height: calc(100vh - 12rem);
+  width: min(1120px, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 13.8rem);
   padding: 1rem;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   z-index: 215;
   box-shadow: 0 22px 58px rgba(11, 31, 62, 0.3);
   border: 1px solid #9fc0e8;
@@ -191,8 +307,9 @@ button.secondary:hover {
   margin-top: 0;
   margin-bottom: 0.7rem;
   align-items: stretch;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 0.55rem;
+  min-width: 0;
 }
 
 #daily-refresh-latest-btn {
@@ -207,8 +324,50 @@ button.secondary:hover {
   align-items: center;
 }
 
+#student-daily-panel.floating-daily-overlay > .inline-tools > button[hidden] {
+  display: none !important;
+}
+
 #daily-refresh-latest-btn {
   margin-left: auto;
+}
+
+#student-daily-panel.floating-daily-overlay .question-list,
+#student-daily-panel.floating-daily-overlay .question-card,
+#student-daily-panel.floating-daily-overlay .question-head,
+#student-daily-panel.floating-daily-overlay .question-head-main,
+#student-daily-panel.floating-daily-overlay .question-head-right,
+#student-daily-panel.floating-daily-overlay .question-body,
+#student-daily-panel.floating-daily-overlay .solution-body {
+  max-width: 100%;
+  min-width: 0;
+}
+
+#student-daily-panel.floating-daily-overlay .question-body,
+#student-daily-panel.floating-daily-overlay .solution-body {
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+#student-daily-panel.floating-daily-overlay mjx-container {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+@media (max-width: 720px) {
+  #student-daily-panel.floating-daily-overlay {
+    top: 13.2rem;
+    width: calc(100vw - 1rem);
+    max-width: calc(100vw - 1rem);
+    max-height: calc(100dvh - 13.9rem);
+    padding: 0.75rem;
+  }
+
+  #daily-refresh-latest-btn {
+    margin-left: 0;
+  }
 }
 
 #student-settings-page.floating-settings-overlay {
@@ -229,6 +388,7 @@ button.secondary:hover {
   display: flex;
   align-items: center;
   gap: 0.8rem;
+  min-width: 0;
 }
 
 .welcome-avatar-wrap {
@@ -237,12 +397,28 @@ button.secondary:hover {
   height: 92px;
 }
 
+.welcome-frame-overlay-img {
+  position: absolute;
+  inset: -13px;
+  width: calc(100% + 26px);
+  height: calc(100% + 26px);
+  object-fit: contain;
+  pointer-events: none;
+  z-index: 3;
+}
+
 .welcome-profile.student-header h2 {
   margin: 0;
   font-size: clamp(1.45rem, 2.8vw, 2rem);
+  line-height: 1.08;
+}
+
+.welcome-word {
+  display: block;
 }
 
 .welcome-name-link {
+  display: block;
   margin-top: 0;
   padding: 0;
   border: 0;
@@ -269,6 +445,8 @@ button.secondary:hover {
   font-size: 2.4rem;
   overflow: hidden;
   box-shadow: 0 8px 16px rgba(24, 58, 102, 0.12);
+  position: relative;
+  z-index: 2;
 }
 
 .clickable-avatar {
@@ -284,6 +462,19 @@ button.secondary:hover {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.welcome-avatar-model,
+.avatar-model,
+.preview-pic-model {
+  width: 100%;
+  height: 100%;
+  --poster-color: transparent;
+  background: transparent;
+}
+
+.welcome-avatar-model {
+  min-height: 92px;
 }
 
 .avatar-plus-btn {
@@ -313,7 +504,10 @@ button.secondary:hover {
   position: relative;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 0.45rem;
+  min-height: 45px;
+  padding: 0.65rem 1rem;
 }
 
 body[data-student-page="daily"] #profile-daily-mission-btn,
@@ -321,6 +515,14 @@ body[data-student-page="today-review"] #profile-daily-mission-btn,
 body[data-student-page="avatar-shop"] #profile-daily-mission-btn,
 body[data-student-page="settings"] #profile-daily-mission-btn,
 body[data-student-page="teacher"] #profile-daily-mission-btn {
+  display: none !important;
+}
+
+body[data-student-page="daily"] #open-practice-mode-btn,
+body[data-student-page="today-review"] #open-practice-mode-btn,
+body[data-student-page="avatar-shop"] #open-practice-mode-btn,
+body[data-student-page="settings"] #open-practice-mode-btn,
+body[data-student-page="teacher"] #open-practice-mode-btn {
   display: none !important;
 }
 
@@ -685,6 +887,64 @@ body[data-student-page="teacher"] .teacher-section-header .student-nav {
   min-width: 7rem;
   width: 100%;
   padding: 0.35rem 0.45rem;
+}
+
+.admin-account-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.admin-account-table th,
+.admin-account-table td {
+  padding: 0.35rem 0.4rem;
+  vertical-align: middle;
+}
+
+.admin-account-table th:nth-child(1),
+.admin-account-table td:nth-child(1) {
+  width: 4.8rem;
+}
+
+.admin-account-table th:nth-child(2),
+.admin-account-table td:nth-child(2) {
+  width: 15%;
+}
+
+.admin-account-table th:nth-child(3),
+.admin-account-table td:nth-child(3) {
+  width: 20%;
+  word-break: break-word;
+}
+
+.admin-account-table th:nth-child(4),
+.admin-account-table td:nth-child(4) {
+  width: 8rem;
+}
+
+.admin-account-table th:nth-child(5),
+.admin-account-table td:nth-child(5),
+.admin-account-table th:nth-child(6),
+.admin-account-table td:nth-child(6) {
+  width: 7rem;
+}
+
+.admin-account-table th:nth-child(7),
+.admin-account-table td:nth-child(7) {
+  width: 14rem;
+}
+
+.admin-account-table .table-filter-input {
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.admin-account-table button {
+  padding: 0.45rem 0.65rem;
+  margin-top: 0.25rem;
+}
+
+.admin-row-password {
+  margin-bottom: 0.25rem;
 }
 
 .date-header-label {
@@ -1088,6 +1348,53 @@ details.subpanel > summary {
   min-width: 9rem;
 }
 
+#profile-panel-review .top-row {
+  overflow-x: visible;
+}
+
+#profile-panel-review .inline-tools {
+  flex-wrap: nowrap;
+  width: 100%;
+}
+
+#profile-panel-review .inline-tools select,
+#profile-panel-review .inline-tools input {
+  flex: 1 1 0;
+  min-width: 0;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
+#profile-panel-review #review-filter-lv {
+  flex-basis: 5.8rem;
+}
+
+#profile-panel-review #review-filter-topic {
+  flex-basis: 12rem;
+}
+
+#profile-panel-review #review-filter-result {
+  flex-basis: 6rem;
+}
+
+#profile-panel-review #review-filter-date {
+  flex-basis: 8.8rem;
+}
+
+#profile-panel-review #review-sort-field {
+  flex-basis: 8.2rem;
+}
+
+#profile-panel-review #review-sort-order {
+  flex-basis: 5.7rem;
+}
+
+#profile-panel-review .filter-btn {
+  flex: 0 0 4.8rem;
+  padding-left: 0.55rem;
+  padding-right: 0.55rem;
+}
+
 #teacher-scope-topics {
   min-width: 14rem;
   min-height: 9rem;
@@ -1140,10 +1447,113 @@ details.subpanel > summary {
   margin-bottom: 0.8rem;
 }
 
+.summary:empty {
+  display: none;
+}
+
 .radar-wrap {
   display: grid;
   gap: 0.55rem;
+  justify-items: stretch;
+}
+
+.radar-layout {
+  display: grid;
+  grid-template-columns: minmax(250px, 1fr) minmax(420px, 2fr);
+  gap: 1rem;
+  align-items: start;
+  width: 100%;
+}
+
+.radar-chart-panel {
+  display: grid;
+  gap: 0.4rem;
   justify-items: center;
+}
+
+.radar-chart-panel h4 {
+  justify-self: start;
+  margin: 0;
+}
+
+.radar-classmates {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.radar-classmates h4 {
+  margin: 0;
+}
+
+.radar-classmates-body {
+  margin-top: 0.75rem;
+}
+
+.radar-classmate-table th,
+.radar-classmate-table td {
+  white-space: nowrap;
+}
+
+.radar-classmate-table th:first-child,
+.radar-classmate-table td:first-child {
+  min-width: 12rem;
+}
+
+.classmate-name-cell {
+  align-items: center;
+  display: flex;
+  gap: 0.75rem;
+}
+
+.classmate-avatar {
+  align-items: center;
+  background: linear-gradient(180deg, #f7fbff 0%, #e8f3ff 100%);
+  border: 2px solid #cde0f7;
+  border-radius: 14px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 3.35rem;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  width: 3.35rem;
+}
+
+.classmate-avatar.has-image-frame {
+  overflow: visible;
+}
+
+.classmate-avatar-img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.classmate-avatar-frame-img {
+  height: calc(100% + 18px);
+  left: -9px;
+  object-fit: contain;
+  pointer-events: none;
+  position: absolute;
+  top: -9px;
+  width: calc(100% + 18px);
+  z-index: 2;
+}
+
+.classmate-avatar-text {
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+.classmate-frame-neon { border-color: #66e3ff; box-shadow: 0 0 0 2px rgba(102, 227, 255, 0.2); }
+.classmate-frame-sakura { border-color: #f7b4cf; box-shadow: 0 0 0 2px rgba(247, 180, 207, 0.22); }
+.classmate-frame-aurora { border-color: #8cf5e3; box-shadow: 0 0 0 2px rgba(140, 245, 227, 0.28); }
+.classmate-frame-inferno { border-color: #ff9d66; box-shadow: 0 0 0 2px rgba(255, 157, 102, 0.25); }
+.classmate-frame-holo { border-color: #c8d6ff; box-shadow: 0 0 0 2px rgba(150, 126, 255, 0.22); }
+.classmate-frame-mythic { border-color: #ffd278; box-shadow: 0 0 0 2px rgba(255, 210, 120, 0.3); }
+
+.radar-sort-btn {
+  cursor: pointer;
 }
 
 .radar-svg {
@@ -1152,7 +1562,7 @@ details.subpanel > summary {
 }
 
 .radar-label {
-  font-size: 11px;
+  font-size: 9px;
   fill: #3a5f8f;
   font-weight: 700;
   text-anchor: middle;
@@ -1176,6 +1586,16 @@ details.subpanel > summary {
   height: 0.62rem;
   border-radius: 999px;
   margin-right: 0.3rem;
+}
+
+@media (max-width: 720px) {
+  .radar-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .practice-picker {
+    grid-template-columns: 1fr;
+  }
 }
 
 .legend-student {
@@ -1218,6 +1638,25 @@ details.subpanel > summary {
   box-shadow: 0 22px 58px rgba(11, 31, 62, 0.35);
   border: 1px solid #9fc0e8;
   background: linear-gradient(180deg, #f8fcff 0%, #eff6ff 100%);
+}
+
+#shop-draw-reveal-overlay:has(.draw-loader) {
+  width: fit-content;
+  max-width: calc(100vw - 2rem);
+  max-height: calc(100dvh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+#shop-draw-reveal-overlay:has(.draw-loader) .floating-shop-close-btn {
+  position: absolute;
+  top: 0.55rem;
+  right: 0.55rem;
+  float: none;
+  z-index: 235;
+  background: rgba(86, 108, 137, 0.92);
+  color: #fff;
 }
 
 .floating-shop-close-btn {
@@ -1330,6 +1769,11 @@ details.subpanel > summary {
   margin-top: 0.55rem;
 }
 
+#shop-draw-reveal-overlay:has(.draw-loader) .draw-reveal-content {
+  margin: 0;
+  line-height: 0;
+}
+
 .frame-preview-visual {
   width: 88px;
   height: 88px;
@@ -1338,6 +1782,20 @@ details.subpanel > summary {
   background: linear-gradient(180deg, #f4f7fb 0%, #dce5f2 100%);
   display: grid;
   place-items: center;
+}
+
+.frame-preview-visual.image-frame {
+  border: 0;
+  background: transparent;
+  overflow: hidden;
+  padding: 0;
+}
+
+.frame-preview-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 
 .frame-preview-core {
@@ -1456,17 +1914,16 @@ details.subpanel > summary {
 }
 
 .draw-loader {
-  display: grid;
-  gap: 0.2rem;
-  justify-items: center;
+  position: relative;
+  display: block;
 }
 
 .draw-loader-video {
-  width: 60vw;
-  max-width: 60vw;
-  height: 60vh;
-  max-height: 60vh;
-  border-radius: 8px;
+  width: min(760px, calc(100vw - 2rem));
+  max-width: calc(100vw - 2rem);
+  height: auto;
+  max-height: calc(100dvh - 2rem);
+  border-radius: 14px;
   border: 0;
   background: transparent;
   object-fit: contain;
@@ -1480,8 +1937,14 @@ details.subpanel > summary {
 }
 
 .draw-loader-text {
+  position: absolute;
+  left: 50%;
+  bottom: 0.8rem;
+  transform: translateX(-50%);
+  line-height: 1.2;
   font-weight: 800;
-  color: #145b9b;
+  color: #ffffff;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.58);
 }
 
 @keyframes draw-spin {
@@ -1528,10 +1991,39 @@ details.subpanel > summary {
   font-size: 2rem;
 }
 
+.avatar-emoji.has-3d-model {
+  width: 7.2rem;
+  height: 7.2rem;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #eef7ff 0%, #ffffff 100%);
+}
+
 .avatar-photo {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+
+.avatar-model {
+  width: 100%;
+  height: 100%;
+  min-height: 5.4rem;
+  border-radius: inherit;
+}
+
+.preview-pic-model {
+  width: 100%;
+  height: 100%;
+  min-height: 8rem;
+}
+
+.avatar-model-fallback {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: #244469;
+  font-weight: 800;
 }
 
 .avatar-name {
