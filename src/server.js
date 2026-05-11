@@ -1,4 +1,5 @@
 ﻿const path = require("path");
+const fs = require("fs/promises");
 const express = require("express");
 const crypto = require("crypto");
 const zlib = require("zlib");
@@ -1299,6 +1300,67 @@ function buildProblemPoolIndex(problemRows) {
 
   comboList.sort(compareComboOrder);
   return { byCombo, comboList };
+}
+
+const FORMULA_SHEET_DIR = path.join(__dirname, "..", "public", "assets", "formula sheet");
+const FORMULA_SHEET_URL_BASE = "/assets/formula%20sheet";
+
+function slugifyTopic(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function singularizeSlug(slug) {
+  return String(slug || "")
+    .split("-")
+    .map((part) => (part.length > 3 && part.endsWith("s") ? part.slice(0, -1) : part))
+    .join("-");
+}
+
+function topicSlugCandidates(topic) {
+  const base = slugifyTopic(topic);
+  const singular = singularizeSlug(base);
+  const aliases = new Map([
+    ["equation-of-straight-lines", ["equation-of-straight-line"]],
+    ["quadratic-equations", ["quadratic-equation"]],
+    ["polynomials", ["polynomial"]],
+    ["exponential-functions", ["exponential-function"]],
+    ["logarithmic-functions", ["logarithmic-function"]],
+    ["complex-numbers", ["complex-number"]]
+  ]);
+  const withoutTrailingS = base.endsWith("s") ? base.slice(0, -1) : "";
+  return [...new Set([base, singular, withoutTrailingS, ...(aliases.get(base) || []), ...(aliases.get(singular) || [])].filter(Boolean))];
+}
+
+async function listFormulaSheetsForTopic(topic) {
+  const candidates = topicSlugCandidates(topic);
+  if (!candidates.length) return [];
+  let entries = [];
+  try {
+    entries = await fs.readdir(FORMULA_SHEET_DIR, { withFileTypes: true });
+  } catch (_error) {
+    return [];
+  }
+  return entries
+    .filter((entry) => entry.isFile() && /\.(png|jpe?g|webp|gif)$/i.test(entry.name))
+    .map((entry) => {
+      const match = entry.name.match(/^(.+?)(?:-(\d+))?\.[^.]+$/);
+      return {
+        name: entry.name,
+        slug: String(match?.[1] || "").toLowerCase(),
+        order: Number(match?.[2] || 1)
+      };
+    })
+    .filter((entry) => candidates.includes(entry.slug))
+    .sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "en", { numeric: true }))
+    .map((entry) => ({
+      title: `${topic} ${entry.order || ""}`.trim(),
+      url: `${FORMULA_SHEET_URL_BASE}/${encodeURIComponent(entry.name)}`
+    }));
 }
 
 async function fetchStudentLearningProgress(studentId) {
@@ -4065,13 +4127,36 @@ app.get("/api/student/review", ensureCloud, requireAuth, requireRole("student"),
   return res.json({ count: rows.length, stats, records: rows });
 });
 
-function progressRowsToStatusGroups(rows) {
+function progressRowsToStatusGroups(rows, options = {}) {
+  const comboRows = Array.isArray(options.comboRows) ? options.comboRows : [];
+  const includeBlankCombos = options.includeBlankCombos !== false;
   const byTopic = new Map();
+  const ensureTopic = (topic) => {
+    const key = String(topic || "").trim() || "Unknown";
+    if (!byTopic.has(key)) byTopic.set(key, []);
+    return byTopic.get(key);
+  };
+  if (includeBlankCombos) {
+    for (const combo of comboRows) {
+      const topic = String(combo.topic || "").trim() || "Unknown";
+      const subType = String(combo.sub_type || "").trim() || "Unknown";
+      ensureTopic(topic).push({
+        difficulty: combo.difficulty,
+        topic,
+        sub_type: subType,
+        status: "",
+        next_review_date: null,
+        consecutive_correct_count: 0,
+        wrong_count: 0,
+        backfill_correct_count: 0
+      });
+    }
+  }
+  const rowByKey = new Map();
   for (const row of rows || []) {
     const topic = String(row.topic || "").trim() || "Unknown";
     const subType = String(row.sub_type || "").trim() || "Unknown";
-    if (!byTopic.has(topic)) byTopic.set(topic, []);
-    byTopic.get(topic).push({
+    rowByKey.set(comboKey({ difficulty: row.difficulty, topic, sub_type: subType }), {
       difficulty: row.difficulty,
       topic,
       sub_type: subType,
@@ -4081,6 +4166,12 @@ function progressRowsToStatusGroups(rows) {
       wrong_count: Number(row.wrong_count || 0),
       backfill_correct_count: Number(row.backfill_correct_count || 0)
     });
+  }
+  for (const [key, progress] of rowByKey.entries()) {
+    const target = ensureTopic(progress.topic);
+    const idx = target.findIndex((row) => comboKey(row) === key);
+    if (idx >= 0) target[idx] = progress;
+    else target.push(progress);
   }
   return [...byTopic.entries()]
     .map(([topic, subtopics]) => ({
@@ -4099,7 +4190,19 @@ app.get("/api/student/progress", ensureCloud, requireAuth, requireRole("student"
     .order("topic", { ascending: true })
     .order("sub_type", { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
-  return res.json({ topics: progressRowsToStatusGroups(data || []) });
+  let rows = Array.isArray(data) ? data : [];
+  let comboRows = [];
+  try {
+    const scopeRules = await fetchScopeRulesForStudent(req.profile.user_id);
+    const { comboList } = buildProblemPoolIndex(applyScopeRulesToProblemRows(await fetchProblemRowsPaged(), scopeRules));
+    comboRows = comboList;
+    if (scopeRules.some((rules) => Array.isArray(rules) && rules.length)) {
+      rows = applyScopeRulesToProblemRows(rows, scopeRules);
+    }
+  } catch (scopeError) {
+    return res.status(500).json({ error: scopeError.message || "Failed to apply student scope." });
+  }
+  return res.json({ topics: progressRowsToStatusGroups(rows, { comboRows }) });
 });
 
 app.get("/api/student/alerts", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
@@ -4111,6 +4214,13 @@ app.get("/api/student/alerts", ensureCloud, requireAuth, requireRole("student"),
     .order("created_at", { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   return res.json({ alerts: Array.isArray(data) ? data : [] });
+});
+
+app.get("/api/student/formula-sheets", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  const topic = String(req.query.topic || "").trim();
+  if (!topic) return res.status(400).json({ error: "topic is required." });
+  const sheets = await listFormulaSheetsForTopic(topic);
+  return res.json({ topic, sheets });
 });
 
 app.get("/api/teacher/alerts", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {

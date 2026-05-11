@@ -193,6 +193,9 @@ const wrongFeedbackDialog = document.getElementById("wrong-feedback-dialog");
 const statusDetailDialog = document.getElementById("status-detail-dialog");
 const statusDetailTitle = document.getElementById("status-detail-title");
 const statusDetailBody = document.getElementById("status-detail-body");
+const formulaSheetDialog = document.getElementById("formula-sheet-dialog");
+const formulaSheetTitle = document.getElementById("formula-sheet-title");
+const formulaSheetBody = document.getElementById("formula-sheet-body");
 const alertWrongDialog = document.getElementById("alert-wrong-dialog");
 const alertWrongTitle = document.getElementById("alert-wrong-title");
 const alertWrongBody = document.getElementById("alert-wrong-body");
@@ -229,10 +232,12 @@ const DIAMOND_RULE_TOOLTIP =
 let verifiedBrowserEmail = "";
 const STUDENT_THEME_KEY = "student_theme_mode";
 const STUDENT_PAGE_KEY = "student_page_tab";
+const STUDENT_SESSION_PAGE_KEY = "student_page_session";
 const TEACHER_PAGE_KEY = "teacher_page_tab";
 const TEACHER_PROFILE_STUDENT_KEY = "teacher_profile_student_id";
 const STUDENT_FORCE_PROFILE_ONCE_KEY = "student_force_profile_once";
 const STUDENT_ASSESSMENT_CACHE_PREFIX = "student_initial_assessment_v12_";
+const STUDENT_PROFILE_CACHE_MS = 45000;
 const questionStartTimes = new Map();
 let teacherStudentViewData = null;
 let difficultyOrder = ["lv2", "lv3", "lv4", "lv5", "lv5*", "lv5**"];
@@ -243,6 +248,38 @@ const selectedGroupMemberIds = new Set();
 let teacherStudentBackTarget = "dashboard";
 let currentTeacherPage = "dashboard";
 let teacherStatusReturnContext = null;
+let studentStatsCache = null;
+let studentReviewCache = null;
+const formulaSheetCache = new Map();
+const FORMULA_SHEET_FALLBACK = {
+  "approximation-and-error": ["approximation-and-error-1.png", "approximation-and-error-2.png"],
+  "area-and-volume": ["area-and-volume-1.png", "area-and-volume-2.png"],
+  "complex-number": ["complex-number-1.png"],
+  "equation-of-straight-line": ["equation-of-straight-line-1.png"],
+  "equation-of-straight-lines": ["equation-of-straight-line-1.png"],
+  "exponential-function": ["exponential-function-1.png", "exponential-function-2.png"],
+  "exponential-functions": ["exponential-function-1.png", "exponential-function-2.png"],
+  factorization: ["factorization-1.png"],
+  identity: ["identity-1.png"],
+  indices: ["indices-1.png"],
+  inequality: ["inequality-1.png"],
+  "logarithmic-function": ["logarithmic-function-1.png", "logarithmic-function-2.png", "logarithmic-function-3.png"],
+  "logarithmic-functions": ["logarithmic-function-1.png", "logarithmic-function-2.png", "logarithmic-function-3.png"],
+  "numeral-system": ["numeral-system-1.png"],
+  percentage: ["percentage-1.png", "percentage-2.png"],
+  "plane-geometry": ["plane-geometry-1.png", "plane-geometry-2.png", "plane-geometry-3.png", "plane-geometry-4.png", "plane-geometry-5.png"],
+  polynomial: ["polynomial-1.png", "polynomial-2.png", "polynomial-3.png"],
+  polynomials: ["polynomial-1.png", "polynomial-2.png", "polynomial-3.png"],
+  probability: ["probability-1.png", "probability-2.png"],
+  "quadratic-equation": ["quadratic-equation-1.png"],
+  "quadratic-equations": ["quadratic-equation-1.png"],
+  "quadratic-function": ["quadratic-function-1.png"],
+  "rate-and-ratio": ["rate-and-ratio-1.png", "rate-and-ratio-2.png", "rate-and-ratio-3.png"],
+  "rational-function": ["rational-function-1.png"],
+  statistics: ["statistics-1.png"],
+  "transformation-of-coordinates": ["transformation-of-coordinates-1.png"],
+  "trigonometric-ratios": ["trigonometric-ratios-1.png", "trigonometric-ratios-2.png"]
+};
 let latestTeacherOverviewStudents = [];
 let teacherOverviewDate = "";
 let latestTeacherClasses = [];
@@ -636,11 +673,18 @@ function setStudentTheme(mode) {
 }
 
 function loadStudentPagePreference() {
+  const navType = performance.getEntriesByType?.("navigation")?.[0]?.type || "";
+  const sessionPage = String(sessionStorage.getItem(STUDENT_SESSION_PAGE_KEY) || "").trim();
+  if (navType !== "reload" && ["daily", "practice", "today-review", "settings", "profile"].includes(sessionPage)) {
+    return sessionPage;
+  }
   const v = String(localStorage.getItem(STUDENT_PAGE_KEY) || "").trim();
   return v === "practice" || v === "today-review" || v === "settings" ? v : "profile";
 }
 
 function saveStudentPagePreference(page) {
+  const sessionValue = ["daily", "practice", "today-review", "settings"].includes(page) ? page : "profile";
+  sessionStorage.setItem(STUDENT_SESSION_PAGE_KEY, sessionValue);
   if (page === "daily") return;
   const v = page === "practice" || page === "today-review" || page === "settings" ? page : "profile";
   localStorage.setItem(STUDENT_PAGE_KEY, v);
@@ -685,6 +729,16 @@ function loadDailyCursor(dateValue) {
 function clearDailyCursor(dateValue) {
   if (!dateValue) return;
   localStorage.removeItem(getDailyCursorKey(dateValue));
+}
+
+function clearStudentProfileCache() {
+  studentStatsCache = null;
+  studentReviewCache = null;
+}
+
+function getFreshCache(cache) {
+  if (!cache || !cache.loadedAt) return null;
+  return Date.now() - cache.loadedAt <= STUDENT_PROFILE_CACHE_MS ? cache.value : null;
 }
 
 async function switchStudentPage(page) {
@@ -1135,9 +1189,11 @@ function renderQuestionBody(target, rawText, options = {}) {
 function detectMcLabels(latexCode) {
   const labels = [];
   const seen = new Set();
-  const matches = String(latexCode || "").match(/\b([A-H])\./g) || [];
-  for (const token of matches) {
-    const label = token[0];
+  const text = String(latexCode || "").replace(/\\n/g, "\n");
+  const lineMatches = [...text.matchAll(/(?:^|\n)\s*([A-H])\.\s+/g)];
+  const matches = lineMatches.length ? lineMatches : [...text.matchAll(/(?:^|\s)([A-D])\.\s+/g)];
+  for (const match of matches) {
+    const label = String(match[1] || "");
     if (seen.has(label)) continue;
     seen.add(label);
     labels.push(label);
@@ -1147,6 +1203,74 @@ function detectMcLabels(latexCode) {
     return labels.sort((a, b) => order.indexOf(a) - order.indexOf(b));
   }
   return ["A", "B", "C", "D"];
+}
+
+function slugifyFormulaTopic(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function fallbackFormulaSheetsForTopic(topic) {
+  const slug = slugifyFormulaTopic(topic);
+  const singular = slug.endsWith("s") ? slug.slice(0, -1) : slug;
+  const files = FORMULA_SHEET_FALLBACK[slug] || FORMULA_SHEET_FALLBACK[singular] || [];
+  return files.map((name, idx) => ({
+    title: `${topic} ${idx + 1}`.trim(),
+    url: `/assets/formula%20sheet/${encodeURIComponent(name)}`
+  }));
+}
+
+async function getFormulaSheetsForTopic(topic) {
+  const key = String(topic || "").trim();
+  if (!key) return [];
+  if (formulaSheetCache.has(key)) return formulaSheetCache.get(key);
+  const data = await api(`/api/student/formula-sheets?topic=${encodeURIComponent(key)}`, { timeout_ms: 10000 }).catch(() => ({ sheets: [] }));
+  const apiSheets = Array.isArray(data.sheets) ? data.sheets : [];
+  const sheets = apiSheets.length ? apiSheets : fallbackFormulaSheetsForTopic(key);
+  formulaSheetCache.set(key, sheets);
+  return sheets;
+}
+
+async function prepareFormulaSheetButton(button) {
+  if (!button) return;
+  const topic = String(button.getAttribute("data-formula-topic") || "").trim();
+  const sheets = await getFormulaSheetsForTopic(topic);
+  button.hidden = !sheets.length;
+  button.disabled = !sheets.length;
+}
+
+async function showFormulaSheets(topic) {
+  if (!formulaSheetDialog || !formulaSheetBody) return;
+  const cleanTopic = String(topic || "").trim();
+  if (formulaSheetTitle) formulaSheetTitle.textContent = cleanTopic ? `${cleanTopic} Formula Sheet` : "Formula Sheet";
+  formulaSheetBody.innerHTML = "<p class=\"hint\">Loading formula sheet...</p>";
+  if (typeof formulaSheetDialog.showModal === "function") formulaSheetDialog.showModal();
+  else formulaSheetDialog.setAttribute("open", "open");
+  const sheets = await getFormulaSheetsForTopic(cleanTopic);
+  formulaSheetBody.innerHTML = sheets.length
+    ? sheets
+        .map(
+          (sheet, idx) => `
+            <figure class="formula-sheet-figure">
+              <img src="${escapeHtml(sheet.url)}" alt="${escapeHtml(sheet.title || `${cleanTopic} formula sheet ${idx + 1}`)}" />
+            </figure>
+          `
+        )
+        .join("")
+    : "<p class=\"hint\">No formula sheet is available for this topic yet.</p>";
+}
+
+function wireFormulaSheetButtons(scope = document) {
+  scope.querySelectorAll("[data-formula-topic]").forEach((btn) => {
+    prepareFormulaSheetButton(btn);
+    btn.addEventListener("click", async () => {
+      await showFormulaSheets(String(btn.getAttribute("data-formula-topic") || ""));
+    });
+  });
 }
 
 function buildSubmissionState(submission) {
@@ -1475,7 +1599,7 @@ function renderTodayReview(assignments, date) {
         <details class="solution-panel review-card">
           <summary>
             <span class="badge ${state.badgeClass}">${escapeHtml(state.text)}</span>
-            Question ${item.slot} ??${escapeHtml(String(q.topic || "Topic"))} ??${escapeHtml(String(q.difficulty || "-"))}
+            Question ${item.slot} - ${escapeHtml(String(q.topic || "Topic"))} - ${escapeHtml(String(q.difficulty || "-"))}
           </summary>
           <div class="question-body" id="today-review-question-${item.assignment_id}"></div>
           <div class="summary">
@@ -1551,6 +1675,7 @@ async function renderCurrentDailyQuestion() {
             <button type="button" class="secondary tool-btn icon-tool-btn eraser-tool-btn" id="rough-eraser-${q.id}" hidden title="Eraser" aria-label="Eraser"><span class="tool-art eraser-art" aria-hidden="true"></span></button>
             <button type="button" class="secondary tool-btn icon-tool-btn undo-tool-btn" id="rough-undo-${q.id}" hidden title="Undo" aria-label="Undo">↶</button>
             <button type="button" class="secondary tool-btn icon-tool-btn clear-tool-btn" id="rough-clear-${q.id}" hidden title="Clear drawing" aria-label="Clear drawing">✕</button>
+            <button type="button" class="secondary tool-btn formula-sheet-btn" data-formula-topic="${escapeHtml(topic)}" hidden>Formula Sheet</button>
           </div>
         </div>
         <div class="question-head-right">
@@ -1628,6 +1753,7 @@ async function renderCurrentDailyQuestion() {
   const solutionBody = document.getElementById(`solution-body-${q.id}`);
   if (solutionBody) renderQuestionBody(solutionBody, q.solution_latex || "", { multiline: true });
   initializeRoughWorkCanvas(q.id);
+  wireFormulaSheetButtons(studentList);
   if (!item.submission && q.id && !questionStartTimes.has(Number(q.id))) {
     questionStartTimes.set(Number(q.id), Date.now());
   }
@@ -1673,6 +1799,7 @@ async function renderCurrentDailyQuestion() {
           serverTokenBalance = Number(submitResult.token_balance);
           setTopTokenBadge();
         }
+        clearStudentProfileCache();
         const progressMessage = String(submitResult?.progress_feedback?.message || "").trim();
         if (progressMessage) {
           setMessage(studentMessage, progressMessage, submitResult?.progress_feedback?.teacher_notified ? "error" : "success");
@@ -1696,6 +1823,7 @@ async function renderCurrentDailyQuestion() {
           if (feedbackMessage) {
             setMessage(studentMessage, feedbackMessage, feedbackResult?.progress_feedback?.teacher_notified ? "error" : "success");
           }
+          clearStudentProfileCache();
           await loadStudentDaily();
         }
       } catch (error) {
@@ -2331,9 +2459,11 @@ async function loadInitialAssessmentIfNeeded() {
   return true;
 }
 
-async function loadStudentStats() {
+async function loadStudentStats(options = {}) {
   if (!studentStats) return;
-  const data = await api("/api/student/stats");
+  const cached = options.force ? null : getFreshCache(studentStatsCache);
+  const data = cached || await api("/api/student/stats");
+  if (!cached) studentStatsCache = { value: data, loadedAt: Date.now() };
   serverTokenBalance = Number(data.token_balance || 0);
   updateDailyMissionIndicator(Number(data.submitted_today || 0), 5);
   studentStats.innerHTML = "";
@@ -2433,6 +2563,7 @@ function renderPracticeQuestion() {
   const answerValue = String(currentPracticeSubmitted?.answer_text || "").trim();
   const mcLabels = detectMcLabels(q.latex_code || "");
   const roughKey = -Math.abs(Number(q.id));
+  const topic = String(q.topic || "General").trim();
   practiceQuestionList.innerHTML = `
     <article class="question-card ${state.cardClass}">
       <div class="question-head">
@@ -2451,11 +2582,12 @@ function renderPracticeQuestion() {
             <button type="button" class="secondary tool-btn icon-tool-btn eraser-tool-btn" id="rough-eraser-${roughKey}" hidden title="Eraser" aria-label="Eraser"><span class="tool-art eraser-art" aria-hidden="true"></span></button>
             <button type="button" class="secondary tool-btn icon-tool-btn undo-tool-btn" id="rough-undo-${roughKey}" hidden title="Undo" aria-label="Undo">↶</button>
             <button type="button" class="secondary tool-btn icon-tool-btn clear-tool-btn" id="rough-clear-${roughKey}" hidden title="Clear drawing" aria-label="Clear drawing">✕</button>
+            <button type="button" class="secondary tool-btn formula-sheet-btn" data-formula-topic="${escapeHtml(topic)}" hidden>Formula Sheet</button>
           </div>
         </div>
         <div class="question-head-right">
           <div class="question-labels question-head-labels">
-            <span class="mini-tag topic-tag">${escapeHtml(String(q.topic || "General"))}</span>
+            <span class="mini-tag topic-tag">${escapeHtml(topic)}</span>
             <span class="mini-tag lv-tag">${escapeHtml(String(q.difficulty || "-"))}</span>
             <span class="mini-tag type-tag">${escapeHtml(String(q.question_type || "Short Answer"))}</span>
           </div>
@@ -2513,6 +2645,7 @@ function renderPracticeQuestion() {
   const solutionBody = document.getElementById(`practice-solution-body-${q.id}`);
   if (solutionBody) renderQuestionBody(solutionBody, q.solution_latex || "", { multiline: true });
   initializeRoughWorkCanvas(roughKey);
+  wireFormulaSheetButtons(practiceQuestionList);
   wireMcButtons(practiceQuestionList);
   practiceQuestionList.querySelectorAll(".mc-options").forEach((group) => {
     setSelectedMcAnswer(group, group.getAttribute("data-selected") || "");
@@ -2541,6 +2674,7 @@ async function submitPracticeAnswer() {
     method: "POST",
     body: JSON.stringify({ question_id: questionId, answer_text: answer, time_spent_seconds: elapsedSeconds })
   });
+  clearStudentProfileCache();
   currentPracticeSubmitted = {
     answer_text: answer,
     is_correct: result?.is_correct,
@@ -2560,7 +2694,7 @@ async function submitPracticeAnswer() {
   clearDrawStateForQuestion(roughKey);
   renderPracticeQuestion();
   if (practiceNextBtn) practiceNextBtn.hidden = false;
-  await loadStudentStats();
+  await loadStudentStats({ force: true });
 }
 
 function renderClassTitles(titles) {
@@ -3027,7 +3161,7 @@ function renderReviewRecords(records, target) {
         <details class="solution-panel review-card">
           <summary>
             <span class="badge ${state.badgeClass}">${escapeHtml(state.text)}</span>
-            ${escapeHtml(String(q.topic || "Topic"))} ??${escapeHtml(String(q.difficulty || "-"))} ??${formatDateTime(row.submitted_at)}
+            ${escapeHtml(String(q.topic || "Topic"))} - ${escapeHtml(String(q.difficulty || "-"))} - ${formatDateTime(row.submitted_at)}
           </summary>
           <div class="question-body" id="review-question-${row.id}"></div>
           <div class="summary">
@@ -3383,6 +3517,22 @@ function uniqueSortedValues(rows, key) {
   );
 }
 
+function studentStatusFilterMatches(row, filters, omitKey = "") {
+  if (omitKey !== "topic" && filters.topic && row.topic !== filters.topic) return false;
+  if (omitKey !== "sub_type" && filters.sub_type && row.sub_type !== filters.sub_type) return false;
+  if (omitKey !== "difficulty" && filters.difficulty && row.difficulty !== filters.difficulty) return false;
+  if (omitKey !== "status" && filters.status && studentStatusDisplay(row.status) !== filters.status) return false;
+  return true;
+}
+
+function studentStatusFilterOptions(rows, key, filters) {
+  const source = (rows || []).filter((row) => studentStatusFilterMatches(row, filters, key));
+  if (key === "status") {
+    return uniqueSortedValues(source.map((row) => ({ status: studentStatusDisplay(row.status) })), "status");
+  }
+  return uniqueSortedValues(source, key);
+}
+
 function studentLearningStatusSortValue(row, key) {
   if (key === "status") return studentStatusDisplay(row.status);
   return String(row?.[key] || "");
@@ -3427,24 +3577,22 @@ function renderStudentLearningStatusTable(topics) {
     studentLearningStatusTable.innerHTML = `<p class="hint">No learning status recorded yet.</p>`;
     return;
   }
-  const filterOptions = {
-    topic: uniqueSortedValues(rows, "topic"),
-    sub_type: uniqueSortedValues(rows, "sub_type"),
-    difficulty: uniqueSortedValues(rows, "difficulty"),
-    status: uniqueSortedValues(rows.map((row) => ({ status: studentStatusDisplay(row.status) })), "status")
-  };
   const activeFilters = {
     topic: String(studentLearningStatusFilters.topic || ""),
     sub_type: String(studentLearningStatusFilters.sub_type || ""),
     difficulty: String(studentLearningStatusFilters.difficulty || ""),
     status: String(studentLearningStatusFilters.status || "")
   };
+  const hasAnyFilter = Object.values(activeFilters).some(Boolean);
+  const filterOptions = {
+    topic: studentStatusFilterOptions(rows, "topic", activeFilters),
+    sub_type: studentStatusFilterOptions(rows, "sub_type", activeFilters),
+    difficulty: studentStatusFilterOptions(rows, "difficulty", activeFilters),
+    status: studentStatusFilterOptions(rows, "status", activeFilters)
+  };
   const filteredRows = rows.filter((row) => {
-    if (activeFilters.topic && row.topic !== activeFilters.topic) return false;
-    if (activeFilters.sub_type && row.sub_type !== activeFilters.sub_type) return false;
-    if (activeFilters.difficulty && row.difficulty !== activeFilters.difficulty) return false;
-    if (activeFilters.status && studentStatusDisplay(row.status) !== activeFilters.status) return false;
-    return true;
+    if (!hasAnyFilter) return false;
+    return studentStatusFilterMatches(row, activeFilters);
   });
   const sort = studentLearningStatusSort || { key: "topic", dir: "asc" };
   const dir = sort.dir === "desc" ? -1 : 1;
@@ -3459,6 +3607,9 @@ function renderStudentLearningStatusTable(topics) {
         .join("")}
     </select>
   `;
+  const subtopicFilter = activeFilters.topic
+    ? filterSelect("sub_type", filterOptions.sub_type)
+    : `<select class="table-filter-input" data-student-status-filter="sub_type" disabled><option value="">Choose topic first</option></select>`;
   filteredRows.sort((a, b) => {
     if (sort.key === "difficulty") {
       const aIdx = difficultyOrder.indexOf(a.difficulty);
@@ -3481,15 +3632,18 @@ function renderStudentLearningStatusTable(topics) {
         </tr>
         <tr>
           <th>${filterSelect("topic", filterOptions.topic)}</th>
-          <th>${filterSelect("sub_type", filterOptions.sub_type)}</th>
+          <th>${subtopicFilter}</th>
           <th>${filterSelect("difficulty", filterOptions.difficulty)}</th>
           <th>${filterSelect("status", filterOptions.status)}</th>
         </tr>
       </thead>
       <tbody>
-        ${filteredRows
-          .map(
-            (row) => `
+        ${
+          hasAnyFilter
+            ? filteredRows.length
+              ? filteredRows
+                  .map(
+                    (row) => `
               <tr>
                 <td>${escapeHtml(row.topic || "-")}</td>
                 <td><button type="button" class="link-button" data-student-status-subtopic="${escapeHtml(row.sub_type)}" data-student-status-topic="${escapeHtml(row.topic)}" data-student-status-level="${escapeHtml(row.difficulty)}">${escapeHtml(row.sub_type || "-")}</button></td>
@@ -3497,8 +3651,11 @@ function renderStudentLearningStatusTable(topics) {
                 <td><span class="learning-status-badge ${studentStatusColourClass(row.status)}">${escapeHtml(studentStatusDisplay(row.status))}</span></td>
               </tr>
             `
-          )
-          .join("")}
+                  )
+                  .join("")
+              : `<tr><td colspan="4" class="hint">No learning status matches the selected filters.</td></tr>`
+            : `<tr><td colspan="4" class="hint">Choose at least one filter to show learning status.</td></tr>`
+        }
       </tbody>
     </table>
   `;
@@ -3581,14 +3738,17 @@ function showStudentTopicStatus(topic) {
   else statusDetailDialog.setAttribute("open", "open");
 }
 
-async function loadStudentReview() {
+async function loadStudentReview(options = {}) {
   if (!studentReviewList) return;
   studentStatusReturnContext = null;
   if (studentReviewBackBtn) studentReviewBackBtn.hidden = true;
-  const [data, progressData] = await Promise.all([
+  const cached = options.force ? null : getFreshCache(studentReviewCache);
+  const reviewPayload = cached || await Promise.all([
     api("/api/student/review"),
     api("/api/student/progress").catch(() => ({ topics: [] }))
-  ]);
+  ]).then(([data, progressData]) => ({ data, progressData }));
+  if (!cached) studentReviewCache = { value: reviewPayload, loadedAt: Date.now() };
+  const { data, progressData } = reviewPayload;
   const allRecords = Array.isArray(data.records) ? data.records : [];
   latestStudentReviewRecords = allRecords;
   latestStudentProgressTopics = Array.isArray(progressData.topics) ? progressData.topics : [];
@@ -4896,6 +5056,9 @@ async function initInternal() {
         return;
       }
 
+      const sessionUserId = String(session?.user?.id || "");
+      const currentUserId = String(me?.id || me?.user_id || "");
+      if (_event === "TOKEN_REFRESHED" || (me && sessionUserId && sessionUserId === currentUserId)) return;
       showAppView();
       try {
         await loadMe();
@@ -5417,7 +5580,7 @@ loginForm.addEventListener("submit", async (event) => {
   localStorage.setItem(STUDENT_FORCE_PROFILE_ONCE_KEY, "1");
   setMessage(
     authMessage,
-    browserCheck.enforced ? "Logged in with browser account verified." : "Logged in. Browser account check is not configured.",
+    browserCheck.enforced ? "Logged in with browser account verified." : "Logged in.",
     "success"
   );
   loginForm.reset();
@@ -5693,7 +5856,7 @@ if (assessmentSubmitBtn) {
       const reward = Number(result.token_reward || 0);
       if (Number.isFinite(Number(result.token_balance))) {
         serverTokenBalance = Number(result.token_balance);
-        renderTopTokenBadge();
+        setTopTokenBadge();
       }
       setMessage(
         assessmentMessage || studentMessage,
@@ -5702,6 +5865,7 @@ if (assessmentSubmitBtn) {
       );
       initialAssessmentRequired = false;
       clearCachedAssessmentQuestions();
+      clearStudentProfileCache();
       if (studentAssessmentPanel) studentAssessmentPanel.hidden = true;
       await loadStudentDaily();
       await switchStudentPage("daily");

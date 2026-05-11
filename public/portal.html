@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/portal.css?v=20260510m" />
+    <link rel="stylesheet" href="/portal.css?v=20260511e" />
   </head>
   <body>
     <main class="container">
@@ -470,6 +470,15 @@
         <div id="status-detail-body" class="summary"></div>
       </form>
     </dialog>
+    <dialog id="formula-sheet-dialog">
+      <form method="dialog" class="subpanel wide-dialog formula-sheet-dialog-panel">
+        <div class="top-row">
+          <h4 id="formula-sheet-title">Formula Sheet</h4>
+          <button type="submit" class="secondary">Close</button>
+        </div>
+        <div id="formula-sheet-body" class="formula-sheet-body"></div>
+      </form>
+    </dialog>
     <dialog id="alert-wrong-dialog">
       <form method="dialog" class="subpanel wide-dialog">
         <div class="top-row">
@@ -529,7 +538,7 @@
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
     <script src="/vendor/supabase.js?v=20260502a"></script>
-    <script src="/portal.js?v=20260510w"></script>
+    <script src="/portal.js?v=20260511k"></script>
     <script src="/login-fallback.js?v=20260502b"></script>
   </body>
 </html>

@@ -1186,6 +1186,55 @@ details.subpanel > summary {
   color: #fff;
 }
 
+.rough-tools button.formula-sheet-btn.secondary {
+  white-space: nowrap;
+  align-self: center;
+  min-width: 10.5rem;
+  min-height: 2.85rem;
+  height: 2.85rem;
+  margin-top: 0 !important;
+  padding: 0.58rem 1rem;
+  border: 2px solid #e9b04a;
+  border-radius: 0.85rem;
+  background: linear-gradient(135deg, #f7c66a 0%, #ee9f38 100%) !important;
+  color: #ffffff !important;
+  font-weight: 800;
+  box-shadow: 0 6px 14px rgba(160, 107, 12, 0.24);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  vertical-align: top;
+}
+
+.rough-tools button.formula-sheet-btn.secondary:hover {
+  background: linear-gradient(135deg, #f4bc55 0%, #e8912f 100%) !important;
+  transform: translateY(-1px);
+  box-shadow: 0 10px 20px rgba(160, 107, 12, 0.28);
+}
+
+.formula-sheet-body {
+  display: grid;
+  gap: 1rem;
+  max-height: min(76vh, 760px);
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.formula-sheet-figure {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+  background: white;
+}
+
+.formula-sheet-figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
 .rough-tools .icon-tool-btn {
   font-weight: 800;
   font-size: 1.15rem;
