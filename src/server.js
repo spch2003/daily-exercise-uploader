@@ -550,6 +550,14 @@ function comboKey(combo) {
   return `${String(combo.difficulty || "").trim()}|||${String(combo.topic || "").trim()}|||${String(combo.sub_type || "").trim()}`;
 }
 
+function problemComboKey(problem) {
+  const difficulty = String(problem?.difficulty || "").trim();
+  const topic = String(problem?.topic || "").trim();
+  const subType = String(problem?.sub_type || "").trim();
+  if (!difficulty || !topic || !subType) return "";
+  return comboKey({ difficulty, topic, sub_type: subType });
+}
+
 function parseComboKey(key) {
   const [difficulty, topic, sub_type] = String(key || "").split("|||");
   return {
@@ -1108,6 +1116,19 @@ async function getAssignmentsForDate(studentId, dateString) {
   return Array.isArray(data) ? data : [];
 }
 
+async function isOfficialDailyAssignment(studentId, assignmentDate, assignment) {
+  const slot = Number(assignment?.slot || 0);
+  if (slot > 0) return slot <= 5;
+  const assignmentId = Number(assignment?.id || 0);
+  const questionId = Number(assignment?.question_id || 0);
+  const rows = await getAssignmentsForDate(studentId, assignmentDate);
+  const index = rows.findIndex((row) => {
+    if (assignmentId > 0 && Number(row.id || 0) === assignmentId) return true;
+    return questionId > 0 && Number(row.question_id || 0) === questionId;
+  });
+  return index >= 0 && index < 5;
+}
+
 async function fetchProblemRowsPaged({ grade = "", columns = "id,difficulty,topic,sub_type,grade" } = {}) {
   const targetGrade = String(grade || "").trim();
   const pageSize = 1000;
@@ -1497,6 +1518,20 @@ function getUnlockedDifficulty(comboList, progressByKey) {
   return DIFF[DIFF.length - 1];
 }
 
+function getUnknownProgressionDifficulty(comboList, progressByKey) {
+  for (const diff of DIFF) {
+    const inLevel = comboList.filter((c) => c.difficulty === diff);
+    if (!inLevel.length) continue;
+    const hasUnknown = inLevel.some((combo) => {
+      const row = progressByKey.get(comboKey(combo));
+      if (!row) return true;
+      return normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN;
+    });
+    if (hasUnknown) return diff;
+  }
+  return "";
+}
+
 async function markVariantDone(studentId, combo, progressByKey, questionId) {
   const key = comboKey(combo);
   const existing = progressByKey.get(key) || makeDefaultProgressRow(studentId, combo);
@@ -1525,7 +1560,7 @@ function daysBetweenDateStrings(a, b) {
   return Math.floor((db.getTime() - da.getTime()) / 86400000);
 }
 
-async function buildPriorityQuestionQueue(studentProfile, dateString, neededCount, usedQuestionIds) {
+async function buildPriorityQuestionQueue(studentProfile, dateString, neededCount, usedQuestionIds, options = {}) {
   const studentId = studentProfile.user_id;
   const scopeRules = await fetchScopeRulesForStudent(studentId);
   const allProblemRows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
@@ -1536,7 +1571,27 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
 
   const { byCombo: poolByCombo, comboList } = buildProblemPoolIndex(problemRows);
   const progressByKey = await fetchStudentLearningProgress(studentId);
+  const placement = await hasCompletedInitialAssessment(studentId).catch(() => null);
+  const startDifficulty = String(placement?.start_difficulty || "lv2").trim();
+  const startDifficultyIndex = DIFF.indexOf(startDifficulty);
+  const normalizedStartIndex = startDifficultyIndex >= 0 ? startDifficultyIndex : 0;
+  for (const combo of comboList) {
+    const key = comboKey(combo);
+    if (progressByKey.has(key)) continue;
+    const diffIndex = DIFF.indexOf(String(combo.difficulty || "").trim());
+    const missingStatus =
+      diffIndex >= 0 && diffIndex < normalizedStartIndex
+        ? PROGRESS_STATUS.BACKFILL
+        : PROGRESS_STATUS.UNKNOWN;
+    progressByKey.set(key, makeDefaultProgressRow(studentId, combo, missingStatus));
+  }
   const comboCountByKey = new Map();
+  const maxComboPerDate = Math.max(1, Number(options.maxComboPerDate || 1));
+  for (const key of options.existingComboKeys || []) {
+    const cleanKey = String(key || "").trim();
+    if (!cleanKey) continue;
+    comboCountByKey.set(cleanKey, (comboCountByKey.get(cleanKey) || 0) + 1);
+  }
   const queue = [];
   let slotsLeft = Math.max(Number(neededCount || 0), 0);
 
@@ -1548,7 +1603,7 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
 
   const pushByComboIfPossible = async (combo, priorityTag, options = {}) => {
     if (slotsLeft <= 0) return false;
-    if (getComboCount(combo) >= 2) return false;
+    if (getComboCount(combo) >= maxComboPerDate) return false;
     const row = progressByKey.get(comboKey(combo));
     if (row && normalizeProgressStatus(row) === PROGRESS_STATUS.FROZEN) return false;
     let questionId = Number(options.question_id || 0);
@@ -1604,8 +1659,8 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
 
   // Priority 3: unlocked UNKNOWN progression. Cross-day second attempts go first.
   while (slotsLeft > 0) {
-    const unlockedDifficulty = getUnlockedDifficulty(comboList, progressByKey);
-    const unlockedCombos = comboList.filter((c) => c.difficulty === unlockedDifficulty);
+    const progressionDifficulty = getUnknownProgressionDifficulty(comboList, progressByKey);
+    const unlockedCombos = progressionDifficulty ? comboList.filter((c) => c.difficulty === progressionDifficulty) : [];
     if (!unlockedCombos.length) break;
     const crossDayDue = unlockedCombos
       .filter((combo) => {
@@ -1626,7 +1681,7 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
     });
     const candidates = [...crossDayDue, ...shuffleCopy(freshUnknown)]
       .filter((combo, index, arr) => arr.findIndex((x) => comboKey(x) === comboKey(combo)) === index)
-      .filter((combo) => getComboCount(combo) < 2);
+      .filter((combo) => getComboCount(combo) < maxComboPerDate);
     if (!candidates.length) break;
     let added = false;
     for (const combo of candidates) {
@@ -1663,7 +1718,7 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
     if (!nextCombo) break;
     const ok = await pushByComboIfPossible(nextCombo, "scope_safe_fill");
     if (!ok) {
-      const remaining = fallbackCombos.filter((combo) => getComboCount(combo) < 2);
+      const remaining = fallbackCombos.filter((combo) => getComboCount(combo) < maxComboPerDate);
       let added = false;
       for (const combo of remaining) {
         if (await pushByComboIfPossible(combo, "scope_safe_fill")) {
@@ -1685,8 +1740,9 @@ async function appendAssignmentsForStudentDate(studentProfile, dateString, count
   const studentId = studentProfile.user_id;
   let assignments = await getAssignmentsForDate(studentId, dateString);
   const usedQuestionIds = new Set(assignments.map((a) => Number(a.question_id)).filter((id) => Number.isInteger(id)));
+  const existingComboKeys = assignments.map((a) => problemComboKey(a.problems)).filter(Boolean);
 
-  const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds);
+  const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds, { existingComboKeys });
   if (!queue.length) {
     throw new Error("No assignable questions found in the student's lowest unfinished level under current class/group scope.");
   }
@@ -1711,12 +1767,13 @@ async function appendAssignmentsForStudentDateWithBlocked(studentProfile, dateSt
   const studentId = studentProfile.user_id;
   let assignments = await getAssignmentsForDate(studentId, dateString);
   const usedQuestionIds = new Set(assignments.map((a) => Number(a.question_id)).filter((id) => Number.isInteger(id)));
+  const existingComboKeys = assignments.map((a) => problemComboKey(a.problems)).filter(Boolean);
   for (const qid of blockedQuestionIds || []) {
     const n = Number(qid);
     if (Number.isInteger(n) && n > 0) usedQuestionIds.add(n);
   }
 
-  const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds);
+  const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds, { existingComboKeys });
   if (!queue.length) {
     throw new Error("No assignable questions found in the student's lowest unfinished level under current class/group scope.");
   }
@@ -3054,8 +3111,12 @@ app.get("/api/meta", (_req, res) => {
 });
 
 app.get("/api/meta/scope-options", ensureCloud, requireAuth, requireRole("teacher"), async (_req, res) => {
-  const { data, error } = await supabase.from("problems").select("difficulty,topic");
-  if (error) return res.status(500).json({ error: error.message });
+  let data = [];
+  try {
+    data = await fetchProblemRowsPaged({ columns: "id,difficulty,topic" });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
 
   const byDifficulty = {};
   for (const diff of DIFF) byDifficulty[diff] = [];
@@ -3888,7 +3949,7 @@ app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student")
 
   const { data: assignment, error: assignmentError } = await supabase
     .from("daily_assignments")
-    .select("question_id")
+    .select("id,question_id,slot")
     .eq("student_id", req.profile.user_id)
     .eq("assignment_date", assignmentDate)
     .eq("question_id", questionId)
@@ -3898,6 +3959,7 @@ app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student")
   if (!assignment) {
     return res.status(403).json({ error: "This question is not assigned to you for the selected date." });
   }
+  const affectsLearningProgress = await isOfficialDailyAssignment(req.profile.user_id, assignmentDate, assignment);
 
   const { data: daySubmissions, error: existingError } = await supabase
     .from("student_submissions")
@@ -3944,10 +4006,12 @@ app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student")
   }
 
   let progressFeedback = null;
-  const statusBeforeSubmit = await getLearningProgressStatusForProblem(req.profile.user_id, problem || {});
-  const needsKnownWrongFeedback = isCorrect === false && statusBeforeSubmit === PROGRESS_STATUS.KNOWN && deferWrongFeedback === true;
+  const statusBeforeSubmit = affectsLearningProgress
+    ? await getLearningProgressStatusForProblem(req.profile.user_id, problem || {})
+    : PROGRESS_STATUS.UNKNOWN;
+  const needsKnownWrongFeedback = affectsLearningProgress && isCorrect === false && statusBeforeSubmit === PROGRESS_STATUS.KNOWN && deferWrongFeedback === true;
   try {
-    if (!needsKnownWrongFeedback) {
+    if (affectsLearningProgress && !needsKnownWrongFeedback) {
       progressFeedback = await updateLearningProgressAfterSubmission(req.profile, assignmentDate, problem || {}, isCorrect, carelessError, timeSpentSeconds);
     }
   } catch (progressError) {
@@ -3999,6 +4063,17 @@ app.post("/api/student/submit/:questionId/wrong-feedback", ensureCloud, requireA
   const carelessError = req.body.careless_error === true;
   if (!Number.isInteger(questionId) || questionId <= 0) return res.status(400).json({ error: "Valid questionId is required." });
 
+  const { data: assignment, error: assignmentError } = await supabase
+    .from("daily_assignments")
+    .select("id,question_id,slot")
+    .eq("student_id", req.profile.user_id)
+    .eq("assignment_date", assignmentDate)
+    .eq("question_id", questionId)
+    .maybeSingle();
+  if (assignmentError) return res.status(500).json({ error: assignmentError.message });
+  if (!assignment) return res.status(403).json({ error: "This question is not assigned to you for the selected date." });
+  const affectsLearningProgress = await isOfficialDailyAssignment(req.profile.user_id, assignmentDate, assignment);
+
   const { data: submission, error: submissionError } = await supabase
     .from("student_submissions")
     .select("id,is_correct")
@@ -4009,6 +4084,7 @@ app.post("/api/student/submit/:questionId/wrong-feedback", ensureCloud, requireA
   if (submissionError) return res.status(500).json({ error: submissionError.message });
   if (!submission) return res.status(404).json({ error: "Submission not found." });
   if (submission.is_correct !== false) return res.status(400).json({ error: "Wrong feedback is only available for wrong answers." });
+  if (!affectsLearningProgress) return res.json({ progress_feedback: null });
 
   const { data: problem, error: problemError } = await supabase.from("problems").select("*").eq("id", questionId).maybeSingle();
   if (problemError) return res.status(500).json({ error: problemError.message });
@@ -4596,6 +4672,45 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
   if (submissionError) return res.status(500).json({ error: submissionError.message });
 
   const rows = Array.isArray(submissions) ? submissions : [];
+  const assignmentDates = [...new Set(rows.map((row) => String(row.assignment_date || "").trim()).filter(Boolean))];
+  let assignmentRows = [];
+  if (assignmentDates.length) {
+    const { data: assignedRows, error: assignedRowsError } = await supabase
+      .from("daily_assignments")
+      .select("id,assignment_date,question_id,slot")
+      .eq("student_id", studentId)
+      .in("assignment_date", assignmentDates);
+    if (assignedRowsError) return res.status(500).json({ error: assignedRowsError.message });
+    assignmentRows = Array.isArray(assignedRows) ? assignedRows : [];
+  }
+  const assignmentMetaByKey = new Map();
+  for (const dateKey of assignmentDates) {
+    const rowsForDate = assignmentRows
+      .filter((row) => String(row.assignment_date || "") === dateKey)
+      .sort((a, b) => {
+        const slotA = Number(a.slot || 0);
+        const slotB = Number(b.slot || 0);
+        if (slotA && slotB && slotA !== slotB) return slotA - slotB;
+        if (slotA && !slotB) return -1;
+        if (!slotA && slotB) return 1;
+        return Number(a.id || 0) - Number(b.id || 0);
+      });
+    rowsForDate.forEach((row, index) => {
+      const effectiveSlot = Number(row.slot || 0) || index + 1;
+      assignmentMetaByKey.set(`${dateKey}|||${Number(row.question_id || 0)}`, {
+        slot: effectiveSlot,
+        affects_learning_progress: effectiveSlot <= 5
+      });
+    });
+  }
+  const records = rows.map((row) => {
+    const meta = assignmentMetaByKey.get(`${String(row.assignment_date || "").trim()}|||${Number(row.question_id || 0)}`) || {};
+    return {
+      ...row,
+      assignment_slot: meta.slot || null,
+      affects_learning_progress: meta.affects_learning_progress === true
+    };
+  });
   let practiceRows = [];
   try {
     practiceRows = await fetchPracticeSubmissionsForStudents(studentId);
@@ -4622,7 +4737,7 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
   return res.json({
     student: profile,
     stats,
-    records: rows,
+    records,
     radar,
     aspect_values: aspectValues,
     aspect_leaders: aspectLeaders,

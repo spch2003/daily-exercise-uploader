@@ -3332,19 +3332,40 @@ async function showTeacherStudentTopicStatus(topic, topics) {
   if (statusDetailTitle) statusDetailTitle.textContent = `${topic || "Topic"} Status`;
   const bankData = await api(`/api/teacher/question-bank/subtopics?topic=${encodeURIComponent(topic)}`).catch(() => ({ subtopics: [] }));
   const progressRows = entry?.subtopics || [];
+  const answeredRecords = Array.isArray(teacherStudentViewData?.records) ? teacherStudentViewData.records : [];
+  const answeredByKey = new Map();
+  for (const record of answeredRecords) {
+    const p = record?.problems || {};
+    if (String(p.topic || "") !== String(topic || "")) continue;
+    const key = `${String(p.difficulty || "")}|||${String(p.sub_type || "")}`;
+    if (key.startsWith("|||")) continue;
+    const existing = answeredByKey.get(key) || { total: 0, official: 0, extra: 0 };
+    existing.total += 1;
+    if (record.affects_learning_progress === true) existing.official += 1;
+    else existing.extra += 1;
+    answeredByKey.set(key, existing);
+  }
   const progressByKey = new Map(
     progressRows.map((row) => [`${String(row.difficulty || "")}|||${String(row.sub_type || "")}`, row])
   );
   const bankRows = Array.isArray(bankData.subtopics) ? bankData.subtopics : [];
   const fallbackRows = progressRows.map((row) => ({ difficulty: row.difficulty, topic, sub_type: row.sub_type }));
   const rows = (bankRows.length ? bankRows : fallbackRows).map((row) => {
-    const progress = progressByKey.get(`${String(row.difficulty || "")}|||${String(row.sub_type || "")}`) || {};
+    const key = `${String(row.difficulty || "")}|||${String(row.sub_type || "")}`;
+    const progress = progressByKey.get(key) || {};
+    const answeredCount = answeredByKey.get(key) || { total: 0, official: 0, extra: 0 };
     return {
       difficulty: row.difficulty || progress.difficulty || "",
       topic,
       sub_type: row.sub_type || progress.sub_type || "",
       status: progress.status || "",
-      note: progress.status ? teacherStatusNote(progress.status) : ""
+      note: progress.status
+        ? teacherStatusNote(progress.status)
+        : answeredCount.total
+          ? answeredCount.official
+            ? `Answered ${answeredCount.official} official daily time(s), but no learning-status row is saved yet.`
+            : `Answered ${answeredCount.total} extra/practice time(s), so it did not change learning status.`
+          : ""
     };
   });
   const columns = [

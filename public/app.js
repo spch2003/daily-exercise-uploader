@@ -806,13 +806,13 @@ function parseBulk(text) {
   }
 
   if (content.includes("||")) {
+    const parsedConcatenated = parseConcatenatedRecords(content);
+    if (parsedConcatenated.length) return parsedConcatenated;
+
     if (/\r?\n\s*\r?\n/.test(content)) {
       const parsedBlocks = parseBlockFormat(content);
       if (parsedBlocks.length) return parsedBlocks;
     }
-
-    const parsedConcatenated = parseConcatenatedRecords(content);
-    if (parsedConcatenated.length) return parsedConcatenated;
 
     const parsedBlocks = parseBlockFormat(content);
     if (parsedBlocks.length) return parsedBlocks;
