@@ -133,7 +133,22 @@ function requireAdminUploadAccess(req, res, next) {
 }
 
 function getTodayDateString() {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: APP_TIMEZONE }).format(new Date());
+  const now = new Date();
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: APP_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23"
+    })
+      .formatToParts(now)
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  const dateString = `${parts.year}-${parts.month}-${parts.day}`;
+  return Number(parts.hour || 0) < 8 ? addDaysDateString(dateString, -1) : dateString;
 }
 
 function addDaysDateString(dateString, days) {
@@ -1153,13 +1168,19 @@ async function fetchProblemRowsPaged({ grade = "", columns = "id,difficulty,topi
 
 async function fetchProblemPoolForStudentGrade(studentGrade) {
   const targetGrade = String(studentGrade || "").trim();
-  let rows = await fetchProblemRowsPaged({ grade: targetGrade });
-
-  if (!rows.length && targetGrade) {
-    rows = await fetchProblemRowsPaged();
+  const targetGradeNumber = gradeNumberFromValue(targetGrade);
+  if (targetGradeNumber > 0) {
+    const rows = await fetchProblemRowsPaged();
+    const gradeScopedRows = rows.filter((row) => {
+      const questionGradeNumber = gradeNumberFromValue(row.grade);
+      return questionGradeNumber > 0 && questionGradeNumber <= targetGradeNumber;
+    });
+    if (gradeScopedRows.length) return gradeScopedRows;
   }
 
-  return rows;
+  const rows = await fetchProblemRowsPaged({ grade: targetGrade });
+  if (rows.length || !targetGrade) return rows;
+  return await fetchProblemRowsPaged();
 }
 
 function gradeNumberFromValue(value) {
@@ -3797,6 +3818,25 @@ app.post("/api/student/initial-assessment/submit", ensureCloud, requireAuth, req
       }
     }
     const placement = await initializeProgressFromAssessment(req.profile, counts, totals);
+    const answerRows = answers
+      .map((answer) => {
+        const problem = problemById.get(Number(answer?.question_id));
+        if (!problem) return null;
+        const answerText = String(answer?.answer_text || "").trim();
+        return {
+          student_id: req.profile.user_id,
+          question_id: Number(problem.id),
+          answer_text: answerText,
+          is_correct: !isDontKnowAnswer(answerText) && compareAnswer(answerText, problem.answer_text) === true
+        };
+      })
+      .filter(Boolean);
+    if (answerRows.length) {
+      const { error: answerSaveError } = await supabase
+        .from("student_initial_assessment_answers")
+        .upsert(answerRows, { onConflict: "student_id,question_id" });
+      if (answerSaveError && !isMissingTableError(answerSaveError)) throw new Error(answerSaveError.message);
+    }
     let tokenBalance = null;
     try {
       tokenBalance = await grantStudentTokens(
@@ -4138,6 +4178,13 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
   let aspectLeaders = [];
   let classTitles = [];
   let classmatesPower = [];
+  let initialTestLevel = "";
+  try {
+    const assessment = await hasCompletedInitialAssessment(req.profile.user_id);
+    initialTestLevel = String(assessment?.start_difficulty || "");
+  } catch (_assessmentError) {
+    initialTestLevel = "";
+  }
   try {
     const classAnalytics = await buildClassAnalytics(studentProfile.class_name, studentProfile.user_id, performanceRows);
     radar = {
@@ -4162,6 +4209,7 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
     submitted_today: submittedToday,
     correct_today: correctToday,
     finished_today: finishedToday,
+    initial_test_level: initialTestLevel,
     radar,
     aspect_values: aspectValues,
     aspect_leaders: aspectLeaders,
@@ -4186,7 +4234,25 @@ app.get("/api/student/review", ensureCloud, requireAuth, requireRole("student"),
 
   if (error) return res.status(500).json({ error: error.message });
 
-  let rows = Array.isArray(data) ? data : [];
+  let rows = (Array.isArray(data) ? data : []).map((row) => ({ ...row, source_type: "daily" }));
+  const { data: assessmentRows, error: assessmentError } = await supabase
+    .from("student_initial_assessment_answers")
+    .select(
+      "id, question_id, answer_text, is_correct, submitted_at, problems(question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex)"
+    )
+    .eq("student_id", req.profile.user_id)
+    .order("submitted_at", { ascending: false });
+  if (assessmentError && !isMissingTableError(assessmentError)) return res.status(500).json({ error: assessmentError.message });
+  if (!assessmentError && Array.isArray(assessmentRows)) {
+    rows.push(
+      ...assessmentRows.map((row) => ({
+        ...row,
+        source_type: "initial_assessment",
+        assignment_date: "Initial test",
+        time_spent_seconds: null
+      }))
+    );
+  }
   if (filterDifficulty) {
     rows = rows.filter((row) => String(row.problems?.difficulty || "") === filterDifficulty);
   }
@@ -4198,6 +4264,7 @@ app.get("/api/student/review", ensureCloud, requireAuth, requireRole("student"),
   } else if (filterResult === "wrong") {
     rows = rows.filter((row) => row.is_correct === false);
   }
+  rows.sort((a, b) => String(b.submitted_at || "").localeCompare(String(a.submitted_at || "")));
 
   const stats = computeSubmissionStats(rows);
   return res.json({ count: rows.length, stats, records: rows });
@@ -4257,7 +4324,227 @@ function progressRowsToStatusGroups(rows, options = {}) {
     .sort((a, b) => a.topic.localeCompare(b.topic, "en", { numeric: true, sensitivity: "base" }));
 }
 
+async function backfillMissingProgressFromOfficialSubmissions(studentProfiles, options = {}) {
+  const profiles = Array.isArray(studentProfiles) ? studentProfiles : [studentProfiles].filter(Boolean);
+  const profileById = new Map(profiles.map((profile) => [String(profile?.user_id || ""), profile]).filter(([id]) => id));
+  const ids = [...profileById.keys()];
+  if (!ids.length) return 0;
+
+  let submissionQuery = supabase
+    .from("student_submissions")
+    .select("student_id,assignment_date,question_id,is_correct,time_spent_seconds,submitted_at,problems(id,difficulty,topic,sub_type)")
+    .in("student_id", ids)
+    .order("submitted_at", { ascending: true });
+  const { data: submissions, error: submissionError } = await submissionQuery;
+  if (submissionError) throw new Error(submissionError.message);
+  const submissionRows = (Array.isArray(submissions) ? submissions : []).filter((row) => row.problems);
+  if (!submissionRows.length) return 0;
+
+  const dates = [...new Set(submissionRows.map((row) => String(row.assignment_date || "").trim()).filter(Boolean))];
+  const { data: assignments, error: assignmentError } = await supabase
+    .from("daily_assignments")
+    .select("student_id,assignment_date,question_id,slot")
+    .in("student_id", ids)
+    .in("assignment_date", dates);
+  if (assignmentError) throw new Error(assignmentError.message);
+
+  const officialKeys = new Set(
+    (assignments || [])
+      .filter((row) => Number(row.slot || 0) > 0 && Number(row.slot || 0) <= 5)
+      .map((row) => `${String(row.student_id || "")}|||${String(row.assignment_date || "")}|||${Number(row.question_id || 0)}`)
+  );
+  const officialSubmissions = submissionRows.filter((row) =>
+    officialKeys.has(`${String(row.student_id || "")}|||${String(row.assignment_date || "")}|||${Number(row.question_id || 0)}`)
+  );
+  if (!officialSubmissions.length) return 0;
+
+  let progressQuery = supabase
+    .from("student_learning_progress")
+    .select("student_id,difficulty,topic,sub_type")
+    .in("student_id", ids);
+  if (options.topic) progressQuery = progressQuery.eq("topic", options.topic);
+  if (options.sub_type) progressQuery = progressQuery.eq("sub_type", options.sub_type);
+  const { data: progressRows, error: progressError } = await progressQuery;
+  if (progressError) throw new Error(progressError.message);
+
+  const existingKeys = new Set((progressRows || []).map((row) => `${String(row.student_id || "")}|||${comboKey(row)}`));
+  const missingGroups = new Map();
+  for (const row of officialSubmissions) {
+    const problem = row.problems || {};
+    const combo = {
+      difficulty: String(problem.difficulty || "").trim(),
+      topic: String(problem.topic || "").trim(),
+      sub_type: String(problem.sub_type || "").trim()
+    };
+    if (!combo.difficulty || !combo.topic || !combo.sub_type) continue;
+    const key = `${String(row.student_id || "")}|||${comboKey(combo)}`;
+    if (existingKeys.has(key)) continue;
+    if (!missingGroups.has(key)) missingGroups.set(key, { studentId: String(row.student_id || ""), combo, rows: [] });
+    missingGroups.get(key).rows.push(row);
+  }
+
+  const placementByStudent = new Map();
+  const getPlacementForStudent = async (studentId) => {
+    if (!placementByStudent.has(studentId)) {
+      placementByStudent.set(studentId, await hasCompletedInitialAssessment(studentId).catch(() => null));
+    }
+    return placementByStudent.get(studentId);
+  };
+
+  const rebuildProgressRow = async (studentId, combo, rows) => {
+    const placement = await getPlacementForStudent(studentId);
+    const startDifficulty = String(placement?.start_difficulty || "lv2").trim();
+    const startIdx = DIFF.indexOf(startDifficulty);
+    const diffIdx = DIFF.indexOf(String(combo.difficulty || "").trim());
+    const initialStatus = diffIdx >= 0 && startIdx > 0 && diffIdx < startIdx ? PROGRESS_STATUS.BACKFILL : PROGRESS_STATUS.UNKNOWN;
+    const next = {
+      ...makeDefaultProgressRow(studentId, combo, initialStatus),
+      initial_assessment_done: Boolean(placement)
+    };
+    const sortedRows = [...rows].sort((a, b) => String(a.submitted_at || "").localeCompare(String(b.submitted_at || "")));
+
+    for (const row of sortedRows) {
+      const assignmentDate = String(row.assignment_date || "").trim();
+      const isCorrect = row.is_correct === true;
+      const status = normalizeProgressStatus(next);
+      const questionId = Number(row.question_id || row.problems?.id || 0);
+      if (Number.isInteger(questionId) && questionId > 0 && !next.done_variants.includes(questionId)) {
+        next.done_variants.push(questionId);
+      }
+
+      if (status === PROGRESS_STATUS.BACKFILL) {
+        if (isCorrect) {
+          next.backfill_correct_count = Number(next.backfill_correct_count || 0) + 1;
+          next.careless_streak = 0;
+          if (Number(next.backfill_correct_count || 0) >= 2) {
+            next.status = PROGRESS_STATUS.MASTERED;
+            next.mastery_achieved = true;
+            next.review_stage = 5;
+            next.next_review_date = null;
+          }
+        } else {
+          next.status = PROGRESS_STATUS.UNKNOWN;
+          next.mastery_achieved = false;
+          next.review_stage = 0;
+          next.next_review_date = null;
+          next.consecutive_correct_count = 0;
+          next.last_correct_date = null;
+          next.wrong_count = Number(next.wrong_count || 0) + 1;
+          next.backfill_correct_count = 0;
+          next.careless_streak = 0;
+        }
+      } else if (status === PROGRESS_STATUS.KNOWN) {
+        if (isCorrect) {
+          const stage = Math.max(1, Number(next.review_stage || 1));
+          next.pending_careless_retry = false;
+          next.pending_retest_question_id = null;
+          next.careless_retry_date = null;
+          next.careless_streak = 0;
+          next.wrong_count = 0;
+          if (stage >= 5) {
+            next.status = PROGRESS_STATUS.MASTERED;
+            next.mastery_achieved = true;
+            next.review_stage = 5;
+            next.next_review_date = null;
+          } else {
+            const nextStage = stage + 1;
+            next.status = PROGRESS_STATUS.KNOWN;
+            next.mastery_achieved = true;
+            next.review_stage = nextStage;
+            next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(nextStage));
+          }
+        } else {
+          next.status = PROGRESS_STATUS.UNKNOWN;
+          next.mastery_achieved = false;
+          next.review_stage = 0;
+          next.next_review_date = null;
+          next.consecutive_correct_count = 0;
+          next.last_correct_date = null;
+          next.wrong_count = Number(next.wrong_count || 0) + 1;
+          next.careless_streak = 0;
+        }
+      } else if (status === PROGRESS_STATUS.MASTERED) {
+        if (!isCorrect) {
+          next.status = PROGRESS_STATUS.UNKNOWN;
+          next.mastery_achieved = false;
+          next.review_stage = 0;
+          next.next_review_date = null;
+          next.consecutive_correct_count = 0;
+          next.last_correct_date = null;
+          next.wrong_count = Number(next.wrong_count || 0) + 1;
+        }
+      } else if (isCorrect) {
+        next.pending_careless_retry = false;
+        next.careless_retry_date = null;
+        next.correction_wrong_streak = 0;
+        next.correction_due_date = null;
+        next.is_paused = false;
+        const lastCorrectDate = String(next.last_correct_date || "");
+        const wasCrossDay = lastCorrectDate && lastCorrectDate < assignmentDate;
+        const previousCount = Number(next.consecutive_correct_count || 0);
+        next.consecutive_correct_count = wasCrossDay ? previousCount + 1 : Math.max(previousCount, 1);
+        next.last_correct_date = assignmentDate;
+        next.wrong_count = 0;
+        next.careless_streak = 0;
+        if (Number(next.consecutive_correct_count || 0) >= 2 && wasCrossDay) {
+          next.status = PROGRESS_STATUS.KNOWN;
+          next.mastery_achieved = true;
+          next.review_stage = 1;
+          next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(1));
+          next.consolidation_due_date = null;
+        } else {
+          next.status = PROGRESS_STATUS.UNKNOWN;
+          next.mastery_achieved = false;
+          next.review_stage = 0;
+          next.next_review_date = null;
+        }
+      } else {
+        next.status = PROGRESS_STATUS.UNKNOWN;
+        next.ever_wrong = true;
+        next.pending_careless_retry = false;
+        next.careless_retry_date = null;
+        next.consecutive_correct_count = 0;
+        next.last_correct_date = null;
+        next.streak_correct = 0;
+        next.consolidation_due_date = null;
+        next.correction_due_date = null;
+        next.wrong_count = Number(next.wrong_count || 0) + 1;
+        next.careless_streak = 0;
+      }
+      if (Number(next.wrong_count || 0) >= 3) {
+        next.status = PROGRESS_STATUS.FROZEN;
+        next.is_paused = true;
+        next.pending_careless_retry = false;
+        next.pending_retest_question_id = null;
+      }
+    }
+    return next;
+  };
+
+  let repaired = 0;
+  for (const group of missingGroups.values()) {
+    const profile = profileById.get(group.studentId);
+    if (!profile) continue;
+    const rebuilt = await rebuildProgressRow(group.studentId, group.combo, group.rows);
+    await upsertStudentLearningProgress(rebuilt);
+    if (normalizeProgressStatus(rebuilt) === PROGRESS_STATUS.FROZEN && !(await hasOpenAlertForCombo(group.studentId, group.combo))) {
+      await createLearningAlert(
+        group.studentId,
+        group.combo,
+        `Student needs teacher support on ${group.combo.difficulty} / ${group.combo.topic} / ${group.combo.sub_type} (frozen after repeated errors).`
+      );
+    }
+    repaired += 1;
+  }
+  return repaired;
+}
+
 app.get("/api/student/progress", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  try {
+    await backfillMissingProgressFromOfficialSubmissions(req.profile);
+  } catch (backfillError) {
+    return res.status(500).json({ error: backfillError.message || "Failed to repair learning status." });
+  }
   const { data, error } = await supabase
     .from("student_learning_progress")
     .select("difficulty,topic,sub_type,status,next_review_date,consecutive_correct_count,wrong_count,backfill_correct_count")
@@ -4381,6 +4668,12 @@ app.get("/api/teacher/progress", ensureCloud, requireAuth, requireRole("teacher"
   const studentRows = Array.isArray(students) ? students : [];
   const ids = studentRows.map((s) => String(s.user_id || "")).filter(Boolean);
   if (!ids.length) return res.json({ students: [] });
+
+  try {
+    await backfillMissingProgressFromOfficialSubmissions(studentRows, { topic, sub_type: subType });
+  } catch (backfillError) {
+    return res.status(500).json({ error: backfillError.message || "Failed to repair learning status." });
+  }
 
   let progressQuery = supabase
     .from("student_learning_progress")

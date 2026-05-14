@@ -255,6 +255,7 @@ button.secondary:hover {
 
 .message {
   min-height: 1.2rem;
+  white-space: pre-line;
 }
 
 #student-message:empty {
@@ -1520,9 +1521,20 @@ details.subpanel > summary {
   justify-items: center;
 }
 
-.radar-chart-panel h4 {
-  justify-self: start;
+.radar-panel-head {
+  align-items: center;
+  display: flex;
+  gap: 0.55rem;
+  justify-self: stretch;
+}
+
+.radar-panel-head h4 {
   margin: 0;
+}
+
+.initial-level-stat {
+  margin-left: auto;
+  white-space: nowrap;
 }
 
 .radar-classmates {
@@ -1536,6 +1548,8 @@ details.subpanel > summary {
 
 .radar-classmates-body {
   margin-top: 0.75rem;
+  max-height: 25rem;
+  overflow-y: auto;
 }
 
 .radar-classmate-table th,

@@ -531,7 +531,24 @@ function compareAnswerClient(studentAnswer, expectedAnswer) {
 
 function today() {
   const tz = String(clientConfig?.timezone || "").trim() || "Asia/Hong_Kong";
-  return new Intl.DateTimeFormat("en-CA", { timeZone: tz }).format(new Date());
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-CA", {
+      timeZone: tz,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      hourCycle: "h23"
+    })
+      .formatToParts(new Date())
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  const dateString = `${parts.year}-${parts.month}-${parts.day}`;
+  if (Number(parts.hour || 0) >= 8) return dateString;
+  const date = new Date(`${dateString}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
+  return date.toISOString().slice(0, 10);
 }
 
 function setMessage(el, text, type = "") {
@@ -1625,6 +1642,15 @@ function renderTodayReview(assignments, date) {
   });
 }
 
+async function refreshDailyUiAfterLocalSubmission() {
+  const submittedCount = dailyAssignments.filter((item) => item.submission).length;
+  const totalCount = dailyAssignments.length;
+  updateDailyMissionIndicator(submittedCount, totalCount);
+  dailyReviewAvailable = totalCount > 0 && submittedCount >= totalCount;
+  await renderCurrentDailyQuestion();
+  renderTodayReview(dailyAssignments, dailyDate);
+}
+
 function updateDailyMissionIndicator(submittedCount, totalCount) {
   const submitted = Number(submittedCount || 0);
   const done = submitted >= 5;
@@ -1808,7 +1834,18 @@ async function renderCurrentDailyQuestion() {
         clearDrawStateForQuestion(questionId);
         lastSubmittedQuestionId = questionId;
         questionStartTimes.delete(questionId);
-        await loadStudentDaily();
+        const currentItem = dailyAssignments[currentDailyIndex];
+        if (currentItem && Number(currentItem.question?.id) === questionId) {
+          currentItem.submission = {
+            id: submitResult?.id || null,
+            question_id: questionId,
+            answer_text: answer,
+            is_correct: submitResult?.is_correct,
+            submitted_at: submitResult?.submitted_at || new Date().toISOString(),
+            time_spent_seconds: elapsedSeconds
+          };
+        }
+        await refreshDailyUiAfterLocalSubmission();
         if (submitResult?.needs_wrong_feedback === true) {
           const feedbackChoice = await askWrongFeedbackChoice();
           const feedbackResult = await api(`/api/student/submit/${encodeURIComponent(questionId)}/wrong-feedback`, {
@@ -1824,7 +1861,7 @@ async function renderCurrentDailyQuestion() {
             setMessage(studentMessage, feedbackMessage, feedbackResult?.progress_feedback?.teacher_notified ? "error" : "success");
           }
           clearStudentProfileCache();
-          await loadStudentDaily();
+          await refreshDailyUiAfterLocalSubmission();
         }
       } catch (error) {
         setMessage(studentMessage, error.message, "error");
@@ -2817,6 +2854,7 @@ function renderRadarChart(target, data, labelsForLegend = { student: "You", clas
   const classMetrics = data?.radar?.class_avg || {};
   const classmatesPower = Array.isArray(data?.classmates_power) ? data.classmates_power : [];
   const className = data?.class_name || data?.student?.class_name || "";
+  const initialLevel = String(data?.initial_test_level || data?.student?.initial_test_level || "").trim();
   const labels = Array.isArray(data?.radar?.labels) && data.radar.labels.length === 5
     ? data.radar.labels
     : ["Combo", "Aim", "Flash", "Grind", "Fortune"];
@@ -2849,7 +2887,10 @@ function renderRadarChart(target, data, labelsForLegend = { student: "You", clas
   target.innerHTML = `
     <div class="radar-layout">
       <div class="radar-chart-panel">
-        <h4>Power Pentagon</h4>
+        <div class="radar-panel-head">
+          <h4>Power Pentagon</h4>
+          ${initialLevel ? `<span class="stat initial-level-stat">Initial level: ${escapeHtml(initialLevel)}</span>` : ""}
+        </div>
         <svg viewBox="0 0 ${size} ${size}" class="radar-svg" role="img" aria-label="Student vs class average radar chart">
           ${rings}
           ${axis}
@@ -3157,13 +3198,15 @@ function renderReviewRecords(records, target) {
     .map((row) => {
       const q = row.problems || {};
       const state = buildSubmissionState(row);
+      const reviewId = `${String(row.source_type || "daily")}-${String(row.id)}`;
+      const sourceLabel = row.source_type === "initial_assessment" ? "Initial test" : "Daily";
       return `
         <details class="solution-panel review-card">
           <summary>
             <span class="badge ${state.badgeClass}">${escapeHtml(state.text)}</span>
-            ${escapeHtml(String(q.topic || "Topic"))} - ${escapeHtml(String(q.difficulty || "-"))} - ${formatDateTime(row.submitted_at)}
+            ${escapeHtml(sourceLabel)} - ${escapeHtml(String(q.topic || "Topic"))} - ${escapeHtml(String(q.difficulty || "-"))} - ${formatDateTime(row.submitted_at)}
           </summary>
-          <div class="question-body" id="review-question-${row.id}"></div>
+          <div class="question-body" id="review-question-${escapeHtml(reviewId)}"></div>
           <div class="summary">
             <div class="stat"><strong>Attempt Date:</strong> ${escapeHtml(String(row.assignment_date || "-"))}</div>
             <div class="stat"><strong>Time Spent:</strong> ${formatSeconds(row.time_spent_seconds)}</div>
@@ -3172,7 +3215,7 @@ function renderReviewRecords(records, target) {
           </div>
           <details class="solution-panel" open>
             <summary>Solution</summary>
-            <div class="solution-body" id="review-solution-${row.id}"></div>
+            <div class="solution-body" id="review-solution-${escapeHtml(reviewId)}"></div>
           </details>
         </details>
       `;
@@ -3181,8 +3224,9 @@ function renderReviewRecords(records, target) {
 
   records.forEach((row) => {
     const q = row.problems || {};
-    const qBody = document.getElementById(`review-question-${row.id}`);
-    const sBody = document.getElementById(`review-solution-${row.id}`);
+    const reviewId = `${String(row.source_type || "daily")}-${String(row.id)}`;
+    const qBody = document.getElementById(`review-question-${cssEscape(reviewId)}`);
+    const sBody = document.getElementById(`review-solution-${cssEscape(reviewId)}`);
     if (qBody) renderQuestionBody(qBody, q.latex_code || "");
     if (sBody) renderQuestionBody(sBody, q.solution_latex || "", { multiline: true });
   });
@@ -3235,11 +3279,21 @@ function sortReviewRecords(records, field, order) {
       const bv = String(b?.problems?.topic || "");
       return av.localeCompare(bv) * dir;
     }
-    const ad = String(a?.assignment_date || "");
-    const bd = String(b?.assignment_date || "");
+    const ad = String(a?.submitted_at || a?.assignment_date || "");
+    const bd = String(b?.submitted_at || b?.assignment_date || "");
     return ad.localeCompare(bd) * dir;
   });
   return list;
+}
+
+function lowerLevelCheckNote(startDifficulty) {
+  const start = String(startDifficulty || "").trim();
+  const startIdx = difficultyOrder.indexOf(start);
+  if (startIdx <= 0) return "";
+  const lower = difficultyOrder.slice(0, startIdx).filter((level) => /^lv[2-5]$/.test(level));
+  if (!lower.length) return "";
+  const label = lower.length === 1 ? lower[0] : `${lower[0]}-${lower[lower.length - 1]}`;
+  return `* ${label} questions may also be distributed for checking.`;
 }
 
 function buildTopicLevelAccuracy(records, levels) {
@@ -3773,8 +3827,9 @@ async function loadStudentReview(options = {}) {
   const allRecords = Array.isArray(data.records) ? data.records : [];
   latestStudentReviewRecords = allRecords;
   latestStudentProgressTopics = Array.isArray(progressData.topics) ? progressData.topics : [];
+  const dailyRecords = allRecords.filter((row) => String(row.source_type || "daily") !== "initial_assessment");
   renderStudentLearningStatusTable(latestStudentProgressTopics);
-  renderTopicLevelMatrix(studentTopicLvMatrix, allRecords, difficultyOrder);
+  renderTopicLevelMatrix(studentTopicLvMatrix, dailyRecords, difficultyOrder);
   populateTopicFilter(reviewFilterTopic, allRecords, reviewFilterTopic?.value || "", latestStudentProgressTopics.map((row) => row.topic));
   const filtered = filterReviewRecords(allRecords, {
     difficulty: reviewFilterLv?.value,
@@ -5879,9 +5934,17 @@ if (assessmentSubmitBtn) {
         serverTokenBalance = Number(result.token_balance);
         setTopTokenBadge();
       }
+      const placementSummaryMessage = [
+        `lv2 questions: ${counts.lv2 || 0}/${totals.lv2 || 0}`,
+        `lv3 questions: ${counts.lv3 || 0}/${totals.lv3 || 0}`,
+        `lv4 questions: ${counts.lv4 || 0}/${totals.lv4 || 0}`,
+        `You will start with ${result.start_difficulty || result.start_level || "-"} questions`,
+        lowerLevelCheckNote(result.start_difficulty || result.start_level),
+        reward > 0 ? `+${reward} diamonds for completing the placement test.` : ""
+      ].filter(Boolean).join("\n");
       setMessage(
         assessmentMessage || studentMessage,
-        `Placement completed. Starting level: ${result.start_difficulty || result.start_level || "-"}.${reward > 0 ? ` +${reward} diamonds for completing the placement test.` : ""} Lv2 ${counts.lv2 || 0}/${totals.lv2 || 0}, Lv3 ${counts.lv3 || 0}/${totals.lv3 || 0}, Lv4 ${counts.lv4 || 0}/${totals.lv4 || 0}.`,
+        placementSummaryMessage,
         "success"
       );
       initialAssessmentRequired = false;
@@ -5890,6 +5953,7 @@ if (assessmentSubmitBtn) {
       if (studentAssessmentPanel) studentAssessmentPanel.hidden = true;
       await loadStudentDaily();
       await switchStudentPage("daily");
+      setMessage(studentMessage, placementSummaryMessage, "success");
     } catch (error) {
       setMessage(assessmentMessage || studentMessage, error.message || "Failed to submit placement test.", "error");
     } finally {
