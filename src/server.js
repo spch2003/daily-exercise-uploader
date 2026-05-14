@@ -1512,6 +1512,44 @@ async function createLearningAlert(studentId, combo, message) {
   if (error) throw new Error(error.message);
 }
 
+async function countOfficialWrongSubmissionsForCombo(studentId, combo) {
+  const { data: submissions, error: submissionError } = await supabase
+    .from("student_submissions")
+    .select("id,assignment_date,question_id,is_correct,problems(difficulty,topic,sub_type)")
+    .eq("student_id", studentId)
+    .eq("is_correct", false);
+  if (submissionError) throw new Error(submissionError.message);
+
+  const rows = (submissions || []).filter((row) => {
+    const problem = row.problems || {};
+    return (
+      String(problem.difficulty || "") === String(combo.difficulty || "") &&
+      String(problem.topic || "") === String(combo.topic || "") &&
+      String(problem.sub_type || "") === String(combo.sub_type || "")
+    );
+  });
+  if (!rows.length) return 0;
+
+  const dates = [...new Set(rows.map((row) => String(row.assignment_date || "").trim()).filter(Boolean))];
+  const questionIds = [...new Set(rows.map((row) => Number(row.question_id || 0)).filter((id) => Number.isInteger(id) && id > 0))];
+  if (!dates.length || !questionIds.length) return 0;
+
+  const { data: assignments, error: assignmentError } = await supabase
+    .from("daily_assignments")
+    .select("assignment_date,question_id,slot")
+    .eq("student_id", studentId)
+    .in("assignment_date", dates)
+    .in("question_id", questionIds);
+  if (assignmentError) throw new Error(assignmentError.message);
+
+  const officialKeys = new Set(
+    (assignments || [])
+      .filter((row) => Number(row.slot || 0) > 0 && Number(row.slot || 0) <= 5)
+      .map((row) => `${String(row.assignment_date || "")}|||${Number(row.question_id || 0)}`)
+  );
+  return rows.filter((row) => officialKeys.has(`${String(row.assignment_date || "")}|||${Number(row.question_id || 0)}`)).length;
+}
+
 function isDateDue(dueDate, onDate) {
   const due = String(dueDate || "").trim();
   const today = String(onDate || "").trim();
@@ -2884,6 +2922,13 @@ async function updateLearningProgressAfterSubmission(studentProfile, assignmentD
 
   const freezeIfNeeded = async () => {
     if (Number(next.wrong_count || 0) < 3) return;
+    const officialWrongCount = await countOfficialWrongSubmissionsForCombo(studentId, combo);
+    if (officialWrongCount < 3) {
+      next.wrong_count = officialWrongCount;
+      next.status = PROGRESS_STATUS.UNKNOWN;
+      next.is_paused = false;
+      return;
+    }
     next.status = PROGRESS_STATUS.FROZEN;
     next.is_paused = true;
     next.pending_careless_retry = false;
