@@ -158,7 +158,7 @@
               <span id="daily-progress-label" class="stat">Question 1 / 5</span>
               <button id="daily-next-btn" type="button" class="secondary">Next</button>
               <button id="daily-go-review-btn" type="button" hidden>Daily Review</button>
-              <button id="daily-refresh-latest-btn" type="button" class="secondary" hidden>5 more questions</button>
+              <button id="daily-practice-more-btn" type="button" class="secondary" hidden>Practice more</button>
             </div>
             <div id="student-list" class="question-list"></div>
           </section>
@@ -226,6 +226,9 @@
               <button id="practice-back-profile-btn" type="button" class="secondary">Back to profile</button>
             </div>
             <div class="practice-picker inline-tools">
+              <select id="practice-grade-select">
+                <option value="">All Grades</option>
+              </select>
               <select id="practice-lv-select">
                 <option value="">All Lv</option>
               </select>
@@ -538,7 +541,7 @@
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
     <script src="/vendor/supabase.js?v=20260502a"></script>
-    <script src="/portal.js?v=20260511k"></script>
+    <script src="/portal.js?v=20260522a"></script>
     <script src="/login-fallback.js?v=20260502b"></script>
   </body>
 </html>

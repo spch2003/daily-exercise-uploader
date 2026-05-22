@@ -79,7 +79,7 @@ const closeAvatarShopBtn = document.getElementById("close-avatar-shop-btn");
 const dailyPrevBtn = document.getElementById("daily-prev-btn");
 const dailyNextBtn = document.getElementById("daily-next-btn");
 const dailyGoReviewBtn = document.getElementById("daily-go-review-btn");
-const dailyRefreshLatestBtn = document.getElementById("daily-refresh-latest-btn");
+const dailyPracticeMoreBtn = document.getElementById("daily-practice-more-btn");
 const dailyProgressLabel = document.getElementById("daily-progress-label");
 const dailyReviewStats = document.getElementById("daily-review-stats");
 const dailyReviewList = document.getElementById("daily-review-list");
@@ -105,6 +105,7 @@ const studentTopicLvMatrix = document.getElementById("student-topic-lv-matrix");
 const studentLearningStatusTable = document.getElementById("student-learning-status-table");
 const openPracticeModeBtn = document.getElementById("open-practice-mode-btn");
 const practiceBackProfileBtn = document.getElementById("practice-back-profile-btn");
+const practiceGradeSelect = document.getElementById("practice-grade-select");
 const practiceLvSelect = document.getElementById("practice-lv-select");
 const practiceTopicSelect = document.getElementById("practice-topic-select");
 const practiceSubtopicSelect = document.getElementById("practice-subtopic-select");
@@ -1888,9 +1889,9 @@ async function renderCurrentDailyQuestion() {
 function updateDailyCompletionActions(show) {
   const visible = Boolean(show && dailyReviewAvailable);
   if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = !visible;
-  if (dailyRefreshLatestBtn) {
-    dailyRefreshLatestBtn.hidden = !visible;
-    dailyRefreshLatestBtn.disabled = !visible;
+  if (dailyPracticeMoreBtn) {
+    dailyPracticeMoreBtn.hidden = !visible;
+    dailyPracticeMoreBtn.disabled = !visible;
   }
 }
 
@@ -2327,9 +2328,9 @@ async function loadStudentDaily() {
     dailyDate = data.date || date;
     if (!dailyAssignments.length) {
       updateDailyMissionIndicator(0, 0);
-      if (dailyRefreshLatestBtn) {
-        dailyRefreshLatestBtn.disabled = true;
-        dailyRefreshLatestBtn.hidden = true;
+      if (dailyPracticeMoreBtn) {
+        dailyPracticeMoreBtn.disabled = true;
+        dailyPracticeMoreBtn.hidden = true;
       }
       studentList.innerHTML = "<p>No questions assigned yet.</p>";
       if (studentTodayReviewPage) studentTodayReviewPage.hidden = true;
@@ -2373,9 +2374,9 @@ async function loadStudentDaily() {
 
   } catch (error) {
     updateDailyMissionIndicator(0, 0);
-    if (dailyRefreshLatestBtn) {
-      dailyRefreshLatestBtn.disabled = true;
-      dailyRefreshLatestBtn.hidden = true;
+    if (dailyPracticeMoreBtn) {
+      dailyPracticeMoreBtn.disabled = true;
+      dailyPracticeMoreBtn.hidden = true;
     }
     studentList.innerHTML = "<p>Failed to load daily questions.</p>";
     if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = true;
@@ -2511,6 +2512,7 @@ async function loadStudentStats(options = {}) {
 
 function practiceSelection() {
   return {
+    grade: String(practiceGradeSelect?.value || "").trim(),
     difficulty: String(practiceLvSelect?.value || "").trim(),
     topic: String(practiceTopicSelect?.value || "").trim(),
     sub_type: String(practiceSubtopicSelect?.value || "").trim()
@@ -2518,6 +2520,7 @@ function practiceSelection() {
 }
 
 function practiceOptionMatches(option, selected, omitField = "") {
+  if (omitField !== "grade" && selected.grade && option.grade !== selected.grade) return false;
   if (omitField !== "difficulty" && selected.difficulty && option.difficulty !== selected.difficulty) return false;
   if (omitField !== "topic" && selected.topic && option.topic !== selected.topic) return false;
   if (omitField !== "sub_type" && selected.sub_type && option.sub_type !== selected.sub_type) return false;
@@ -2534,16 +2537,29 @@ function uniquePracticeValues(field, selected, omitField) {
 }
 
 function renderPracticeOptions() {
-  if (!practiceLvSelect || !practiceTopicSelect || !practiceSubtopicSelect) return;
+  if (!practiceGradeSelect || !practiceLvSelect || !practiceTopicSelect || !practiceSubtopicSelect) return;
   const selected = practiceSelection();
-  const lvList = uniquePracticeValues("difficulty", selected, "difficulty")
+
+  const gradeList = [...new Set(
+    practiceOptions
+      .map((option) => String(option?.grade || "").trim())
+      .filter(Boolean)
+  )]
+    .sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }));
+  practiceGradeSelect.innerHTML = `<option value="">All Grades</option>${gradeList
+    .map((grade) => `<option value="${escapeHtml(grade)}">${escapeHtml(grade)}</option>`)
+    .join("")}`;
+  if (selected.grade && gradeList.includes(selected.grade)) practiceGradeSelect.value = selected.grade;
+
+  const selectedAfterGrade = { ...selected, grade: String(practiceGradeSelect.value || "") };
+  const lvList = uniquePracticeValues("difficulty", selectedAfterGrade, "difficulty")
     .sort((a, b) => difficultyOrder.indexOf(a) - difficultyOrder.indexOf(b));
   practiceLvSelect.innerHTML = `<option value="">All Lv</option>${lvList
     .map((lv) => `<option value="${escapeHtml(lv)}">${escapeHtml(lv)}</option>`)
     .join("")}`;
   if (selected.difficulty && lvList.includes(selected.difficulty)) practiceLvSelect.value = selected.difficulty;
 
-  const selectedAfterLv = { ...selected, difficulty: String(practiceLvSelect.value || "") };
+  const selectedAfterLv = { ...selectedAfterGrade, difficulty: String(practiceLvSelect.value || "") };
   const topicList = uniquePracticeValues("topic", selectedAfterLv, "topic")
     .sort((a, b) => a.localeCompare(b, "en", { numeric: true, sensitivity: "base" }));
   practiceTopicSelect.innerHTML = `<option value="">All Topics</option>${topicList
@@ -3199,7 +3215,8 @@ function renderReviewRecords(records, target) {
       const q = row.problems || {};
       const state = buildSubmissionState(row);
       const reviewId = `${String(row.source_type || "daily")}-${String(row.id)}`;
-      const sourceLabel = row.source_type === "initial_assessment" ? "Initial test" : "Daily";
+      const sourceType = String(row.source_type || "daily");
+      const sourceLabel = sourceType === "initial_assessment" ? "Initial test" : sourceType === "practice" ? "Practice" : "Daily";
       return `
         <details class="solution-panel review-card">
           <summary>
@@ -3827,7 +3844,7 @@ async function loadStudentReview(options = {}) {
   const allRecords = Array.isArray(data.records) ? data.records : [];
   latestStudentReviewRecords = allRecords;
   latestStudentProgressTopics = Array.isArray(progressData.topics) ? progressData.topics : [];
-  const dailyRecords = allRecords.filter((row) => String(row.source_type || "daily") !== "initial_assessment");
+  const dailyRecords = allRecords.filter((row) => String(row.source_type || "daily") === "daily");
   renderStudentLearningStatusTable(latestStudentProgressTopics);
   renderTopicLevelMatrix(studentTopicLvMatrix, dailyRecords, difficultyOrder);
   populateTopicFilter(reviewFilterTopic, allRecords, reviewFilterTopic?.value || "", latestStudentProgressTopics.map((row) => row.topic));
@@ -5760,31 +5777,11 @@ if (dailyGoReviewBtn) {
   });
 }
 
-if (dailyRefreshLatestBtn) {
-  dailyRefreshLatestBtn.addEventListener("click", async () => {
+if (dailyPracticeMoreBtn) {
+  dailyPracticeMoreBtn.addEventListener("click", async () => {
     if (!dailyReviewAvailable) return;
-    const confirmRefresh = window.confirm("Get 5 more questions now? You will start from Q1.");
-    if (!confirmRefresh) return;
-    const date = dailyDate || today();
-    try {
-      setMessage(studentMessage, "Preparing 5 more questions... You will start from Q1.");
-      await api("/api/student/daily/refresh-latest", {
-        method: "POST",
-        body: JSON.stringify({ date, count: 5 }),
-        timeout_ms: 20000
-      });
-      lastSubmittedQuestionId = null;
-      currentDailyIndex = 0;
-      clearDailyCursor(date);
-      dailyReviewAvailable = false;
-      if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = true;
-      if (dailyRefreshLatestBtn) dailyRefreshLatestBtn.hidden = true;
-      await switchStudentPage("daily");
-      await loadStudentDaily();
-      setMessage(studentMessage, "5 more questions ready. You will start from Q1.", "success");
-    } catch (error) {
-      setMessage(studentMessage, error.message || "Failed to refresh questions.", "error");
-    }
+    await switchStudentPage("practice");
+    setMessage(practiceMessage || studentMessage, "Choose any scope for extra practice. Practice does not change learning status.", "success");
   });
 }
 
@@ -5845,6 +5842,15 @@ if (openPracticeModeBtn) {
 if (practiceBackProfileBtn) {
   practiceBackProfileBtn.addEventListener("click", async () => {
     await switchStudentPage("profile");
+  });
+}
+
+if (practiceGradeSelect) {
+  practiceGradeSelect.addEventListener("change", () => {
+    renderPracticeOptions();
+    currentPracticeQuestion = null;
+    currentPracticeSubmitted = null;
+    if (practiceQuestionList) practiceQuestionList.innerHTML = "";
   });
 }
 
