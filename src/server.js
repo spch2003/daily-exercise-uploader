@@ -1716,11 +1716,10 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
     await pushByComboIfPossible(rowToCombo(row), "review");
   }
 
-  // Priority 3: unlocked UNKNOWN progression. Cross-day second attempts go first.
-  while (slotsLeft > 0) {
+  const pushNextCrossDayUnknown = async () => {
     const progressionDifficulty = getUnknownProgressionDifficulty(comboList, progressByKey);
     const unlockedCombos = progressionDifficulty ? comboList.filter((c) => c.difficulty === progressionDifficulty) : [];
-    if (!unlockedCombos.length) break;
+    if (!unlockedCombos.length) return false;
     const crossDayDue = unlockedCombos
       .filter((combo) => {
         const row = progressByKey.get(comboKey(combo));
@@ -1732,34 +1731,68 @@ async function buildPriorityQuestionQueue(studentProfile, dateString, neededCoun
           String(row.last_correct_date || "") < dateString
         );
       })
-      .sort(compareComboOrder);
+      .sort(compareComboOrder)
+      .filter((combo) => getComboCount(combo) < maxComboPerDate);
+    for (const combo of crossDayDue) {
+      if (await pushByComboIfPossible(combo, "unknown_cross_day")) return true;
+    }
+    return false;
+  };
+
+  const pushNextFreshUnknown = async () => {
+    const progressionDifficulty = getUnknownProgressionDifficulty(comboList, progressByKey);
+    const unlockedCombos = progressionDifficulty ? comboList.filter((c) => c.difficulty === progressionDifficulty) : [];
+    if (!unlockedCombos.length) return false;
     const freshUnknown = unlockedCombos.filter((combo) => {
       const row = progressByKey.get(comboKey(combo));
       if (!row) return true;
       return normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN && Number(row.consecutive_correct_count || 0) === 0;
     });
-    const candidates = [...crossDayDue, ...shuffleCopy(freshUnknown)]
-      .filter((combo, index, arr) => arr.findIndex((x) => comboKey(x) === comboKey(combo)) === index)
-      .filter((combo) => getComboCount(combo) < maxComboPerDate);
-    if (!candidates.length) break;
-    let added = false;
+    const candidates = shuffleCopy(freshUnknown).filter((combo) => getComboCount(combo) < maxComboPerDate);
     for (const combo of candidates) {
-      if (await pushByComboIfPossible(combo, "unknown_progression")) {
-        added = true;
-        break;
-      }
+      if (await pushByComboIfPossible(combo, "unknown_progression")) return true;
     }
-    if (!added) break;
+    return false;
+  };
+
+  const pushNextBackfill = async () => {
+    const backfillRows = [...progressByKey.values()]
+      .filter((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.BACKFILL)
+      .filter((row) => comboInPool(rowToCombo(row)))
+      .filter((row) => getComboCount(rowToCombo(row)) < maxComboPerDate)
+      .sort(compareComboOrder);
+    for (const row of backfillRows) {
+      if (await pushByComboIfPossible(rowToCombo(row), "backfill")) return true;
+    }
+    return false;
+  };
+
+  // Priority 3: cross-day UNKNOWN confirmations. These can promote a sub-topic
+  // to KNOWN, so they stay ahead of both fresh higher-level work and backfill.
+  while (slotsLeft > 0) {
+    if (!(await pushNextCrossDayUnknown())) break;
   }
 
-  // Priority 4: BACKFILL, lower levels first.
-  const backfillRows = [...progressByKey.values()]
-    .filter((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.BACKFILL)
-    .filter((row) => comboInPool(rowToCombo(row)))
-    .sort(compareComboOrder);
-  for (const row of backfillRows) {
+  // Priority 4: mix fresh higher-level UNKNOWN progression with BACKFILL.
+  // Odd slots favor progression, e.g. 3 slots => 2 fresh + 1 backfill.
+  const mixedSlots = slotsLeft;
+  let freshUnknownQuota = mixedSlots - Math.floor(mixedSlots / 2);
+  let backfillQuota = Math.floor(mixedSlots / 2);
+  while (slotsLeft > 0 && (freshUnknownQuota > 0 || backfillQuota > 0)) {
+    let added = false;
+    if (freshUnknownQuota > 0) {
+      added = await pushNextFreshUnknown();
+      freshUnknownQuota -= 1;
+      if (!added && backfillQuota <= 0) backfillQuota = slotsLeft;
+    }
     if (slotsLeft <= 0) break;
-    await pushByComboIfPossible(rowToCombo(row), "backfill");
+    if (backfillQuota > 0) {
+      const backfillAdded = await pushNextBackfill();
+      backfillQuota -= 1;
+      added = added || backfillAdded;
+      if (!backfillAdded && freshUnknownQuota <= 0) freshUnknownQuota = slotsLeft;
+    }
+    if (!added) break;
   }
 
   // Final safety fill: keep the daily page usable when scope is valid but no
@@ -1857,39 +1890,7 @@ async function ensureDailyAssignments(studentProfile, dateString) {
 }
 
 async function redistributePendingAssignmentsForDate(studentProfile, dateString) {
-  const studentId = studentProfile.user_id;
-  const assignments = await getAssignmentsForDate(studentId, dateString);
-  if (!assignments.length) {
-    return await ensureDailyAssignments(studentProfile, dateString);
-  }
-
-  const questionIds = assignments.map((a) => Number(a.question_id)).filter((id) => Number.isInteger(id));
-  const { data: submissions, error: submissionsError } = await supabase
-    .from("student_submissions")
-    .select("question_id")
-    .eq("student_id", studentId)
-    .eq("assignment_date", dateString)
-    .in("question_id", questionIds);
-  if (submissionsError) throw new Error(submissionsError.message);
-
-  const submittedSet = new Set((submissions || []).map((row) => Number(row.question_id)).filter((id) => Number.isInteger(id)));
-  const pendingAssignmentIds = assignments
-    .filter((a) => !submittedSet.has(Number(a.question_id)))
-    .map((a) => Number(a.id))
-    .filter((id) => Number.isInteger(id));
-
-  if (!pendingAssignmentIds.length) return assignments;
-
-  const desiredTotal = Math.max(5, assignments.length);
-  if (pendingAssignmentIds.length) {
-    const { error: deleteError } = await supabase.from("daily_assignments").delete().in("id", pendingAssignmentIds);
-    if (deleteError) throw new Error(deleteError.message);
-  }
-
-  const remaining = await getAssignmentsForDate(studentId, dateString);
-  const needed = Math.max(desiredTotal - remaining.length, 0);
-  if (needed <= 0) return remaining;
-  return await appendAssignmentsForStudentDate(studentProfile, dateString, needed);
+  return await ensureDailyAssignments(studentProfile, dateString);
 }
 
 async function refreshTodayAssignmentsByLatestRules(studentProfile, dateString, count = 5) {
@@ -1903,13 +1904,6 @@ async function refreshTodayAssignmentsByLatestRules(studentProfile, dateString, 
     .eq("assignment_date", dateString);
   if (subErr) throw new Error(subErr.message);
   const blockedQuestionIds = (subs || []).map((row) => Number(row.question_id)).filter((id) => Number.isInteger(id) && id > 0);
-
-  const { error: delErr } = await supabase
-    .from("daily_assignments")
-    .delete()
-    .eq("student_id", studentId)
-    .eq("assignment_date", dateString);
-  if (delErr) throw new Error(delErr.message);
 
   return await appendAssignmentsForStudentDateWithBlocked(studentProfile, dateString, targetCount, blockedQuestionIds);
 }
@@ -3233,23 +3227,25 @@ app.get("/api/teacher/question-bank/subtopics", ensureCloud, requireAuth, requir
 app.get("/api/student/practice/options", ensureCloud, requireAuth, requireRole("student"), async (_req, res) => {
   let data = [];
   try {
-    data = await fetchProblemRowsPaged({ columns: "id,difficulty,topic,sub_type" });
+    data = await fetchProblemRowsPaged({ columns: "id,difficulty,topic,sub_type,grade" });
   } catch (error) {
     return res.status(500).json({ error: error.message || "Failed to load practice options." });
   }
   const dedup = new Map();
   for (const row of data || []) {
+    const grade = String(row.grade || "").trim();
     const difficulty = String(row.difficulty || "").trim();
     const topic = String(row.topic || "").trim();
     const subType = String(row.sub_type || "").trim();
-    if (!difficulty || !topic || !subType) continue;
-    const key = `${difficulty}|||${topic}|||${subType}`;
-    if (!dedup.has(key)) dedup.set(key, { difficulty, topic, sub_type: subType });
+    if (!grade || !difficulty || !topic || !subType) continue;
+    const key = `${grade}|||${difficulty}|||${topic}|||${subType}`;
+    if (!dedup.has(key)) dedup.set(key, { grade, difficulty, topic, sub_type: subType });
   }
   return res.json({ options: [...dedup.values()].sort(compareComboOrder) });
 });
 
 app.post("/api/student/practice/question", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
+  const grade = String(req.body.grade || "").trim();
   const difficulty = String(req.body.difficulty || "").trim();
   const topic = String(req.body.topic || "").trim();
   const subType = String(req.body.sub_type || "").trim();
@@ -3262,6 +3258,7 @@ app.post("/api/student/practice/question", ensureCloud, requireAuth, requireRole
     .from("problems")
     .select("id,question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex")
     .limit(500);
+  if (grade) query = query.eq("grade", grade);
   if (difficulty) query = query.eq("difficulty", difficulty);
   if (topic) query = query.eq("topic", topic);
   if (subType) query = query.eq("sub_type", subType);
@@ -3999,22 +3996,7 @@ app.post("/api/student/daily/extend", ensureCloud, requireAuth, requireRole("stu
 });
 
 app.post("/api/student/daily/refresh-latest", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
-  const date = String(req.body.date || "").trim() || getTodayDateString();
-  const count = Number(req.body.count || 5);
-  if (!Number.isInteger(count) || count <= 0 || count > 20) {
-    return res.status(400).json({ error: "count must be an integer between 1 and 20." });
-  }
-
-  try {
-    const assignments = await withTimeout(
-      refreshTodayAssignmentsByLatestRules(req.profile, date, count),
-      12000,
-      "daily_refresh_latest"
-    );
-    return res.json({ date, total_assignments: assignments.length });
-  } catch (error) {
-    return res.status(500).json({ error: error.message || "Failed to refresh daily assignments by latest rules." });
-  }
+  return res.status(410).json({ error: "The 5 more questions flow has been replaced by Practice mode." });
 });
 
 app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
@@ -4295,6 +4277,22 @@ app.get("/api/student/review", ensureCloud, requireAuth, requireRole("student"),
         source_type: "initial_assessment",
         assignment_date: "Initial test",
         time_spent_seconds: null
+      }))
+    );
+  }
+  const { data: practiceRows, error: practiceError } = await supabase
+    .from("student_practice_submissions")
+    .select(
+      "id, question_id, answer_text, is_correct, submitted_at, time_spent_seconds, problems(question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex)"
+    )
+    .eq("student_id", req.profile.user_id)
+    .order("submitted_at", { ascending: false });
+  if (practiceError && !isMissingTableError(practiceError)) return res.status(500).json({ error: practiceError.message });
+  if (!practiceError && Array.isArray(practiceRows)) {
+    rows.push(
+      ...normalizePracticeSubmissions(practiceRows).map((row) => ({
+        ...row,
+        source_type: "practice"
       }))
     );
   }
