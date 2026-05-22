@@ -42,8 +42,8 @@ const DIFF = ["lv2", "lv3", "lv4", "lv5", "lv5*", "lv5**"];
 const GRADES = ["F1", "F2", "F3", "F4", "F5", "F6"];
 const QUESTION_TYPES = ["MC", "Short Answer"];
 const REVIEW_INTERVAL_DAYS = {
-  1: 1,
-  2: 3,
+  1: 2,
+  2: 4,
   3: 7,
   4: 14,
   5: 30
