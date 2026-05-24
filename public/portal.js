@@ -99,6 +99,7 @@ const reviewFilterDate = document.getElementById("review-filter-date");
 const reviewSortField = document.getElementById("review-sort-field");
 const reviewSortOrder = document.getElementById("review-sort-order");
 const reviewLoadBtn = document.getElementById("review-load-btn");
+const reviewExportPdfBtn = document.getElementById("review-export-pdf-btn");
 const studentReviewBackBtn = document.getElementById("student-review-back-btn");
 const studentReviewList = document.getElementById("student-review-list");
 const studentTopicLvMatrix = document.getElementById("student-topic-lv-matrix");
@@ -300,6 +301,7 @@ let radarPowerSort = { key: "student_name", dir: "asc" };
 let studentLearningStatusSort = { key: "topic", dir: "asc" };
 const studentLearningStatusFilters = {};
 let latestStudentReviewRecords = [];
+let latestFilteredReviewRecords = [];
 let studentStatusReturnContext = null;
 let practiceOptions = [];
 let currentPracticeQuestion = null;
@@ -3215,8 +3217,7 @@ function renderReviewRecords(records, target) {
       const q = row.problems || {};
       const state = buildSubmissionState(row);
       const reviewId = `${String(row.source_type || "daily")}-${String(row.id)}`;
-      const sourceType = String(row.source_type || "daily");
-      const sourceLabel = sourceType === "initial_assessment" ? "Initial test" : sourceType === "practice" ? "Practice" : "Daily";
+      const sourceLabel = reviewSourceLabel(row);
       return `
         <details class="solution-panel review-card">
           <summary>
@@ -3247,6 +3248,139 @@ function renderReviewRecords(records, target) {
     if (qBody) renderQuestionBody(qBody, q.latex_code || "");
     if (sBody) renderQuestionBody(sBody, q.solution_latex || "", { multiline: true });
   });
+}
+
+function reviewSourceLabel(row) {
+  const sourceType = String(row?.source_type || "daily");
+  if (sourceType === "initial_assessment") return "Initial test";
+  if (sourceType === "practice") return "Practice";
+  return "Daily";
+}
+
+function printableQuestionBodyHtml(rawText, options = {}) {
+  const multiline = Boolean(options.multiline);
+  const { cleanedText, figureUrls, tikzBlocks } = extractQuestionAssets(rawText);
+  const parts = [];
+  if (cleanedText) {
+    const readableText = formatChoicesOnSeparateLines(cleanedText);
+    parts.push(`<div class="math-content">${escapeHtml(formatLatexForReadableLines(readableText, multiline))}</div>`);
+  }
+  if (figureUrls.length) {
+    parts.push(`
+      <div class="figure-list">
+        ${figureUrls.map((url) => `<img class="figure-img" src="${escapeHtml(url)}" alt="Question figure" />`).join("")}
+      </div>
+    `);
+  }
+  if (tikzBlocks.length) {
+    parts.push(`
+      <div class="figure-list">
+        ${tikzBlocks
+          .map((block) => {
+            const url = buildKrokiTikzUrl(sanitizeTikzBlockForPortal(block));
+            return url ? `<img class="figure-img" src="${escapeHtml(url)}" alt="TikZ figure" />` : "";
+          })
+          .join("")}
+      </div>
+    `);
+  }
+  return parts.join("") || `<div class="math-content">-</div>`;
+}
+
+function buildAnsweredQuestionsPdfHtml(records) {
+  const sorted = sortReviewRecords(records, reviewSortField?.value || "date", reviewSortOrder?.value || "desc");
+  const generatedAt = new Date().toLocaleString();
+  const cards = sorted
+    .map((row, index) => {
+      const q = row.problems || {};
+      const state = buildSubmissionState(row);
+      return `
+        <article class="answer-card">
+          <header>
+            <div class="card-title">Question ${index + 1}</div>
+            <div class="meta">${escapeHtml(reviewSourceLabel(row))} - ${escapeHtml(String(q.topic || "Topic"))} - ${escapeHtml(String(q.sub_type || "-"))} - ${escapeHtml(String(q.difficulty || "-"))}</div>
+            <div class="meta">${escapeHtml(formatDateTime(row.submitted_at))} - ${escapeHtml(state.text)}</div>
+          </header>
+          <section>
+            <h2>Question</h2>
+            ${printableQuestionBodyHtml(q.latex_code || "")}
+          </section>
+          <section class="answer-grid">
+            <div><strong>Your Answer</strong><br />${escapeHtml(String(row.answer_text || "-"))}</div>
+            <div><strong>Correct Answer</strong><br />${escapeHtml(String(q.answer_text || "-"))}</div>
+            <div><strong>Time Spent</strong><br />${escapeHtml(formatSeconds(row.time_spent_seconds))}</div>
+            <div><strong>Attempt Date</strong><br />${escapeHtml(String(row.assignment_date || "-"))}</div>
+          </section>
+          <section>
+            <h2>Solution</h2>
+            ${printableQuestionBodyHtml(q.solution_latex || "-", { multiline: true })}
+          </section>
+        </article>
+      `;
+    })
+    .join("");
+
+  return `<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Answered Questions Export</title>
+    <style>
+      body { color: #16243a; font-family: Arial, sans-serif; margin: 24px; }
+      h1 { font-size: 24px; margin: 0 0 4px; }
+      h2 { font-size: 15px; margin: 16px 0 8px; }
+      .export-meta { color: #52637a; font-size: 12px; margin-bottom: 18px; }
+      .answer-card { border: 1px solid #cfd9e6; border-radius: 8px; margin: 0 0 18px; padding: 16px; page-break-inside: avoid; }
+      .card-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+      .meta { color: #52637a; font-size: 12px; line-height: 1.45; }
+      .math-content { font-size: 16px; line-height: 1.7; white-space: pre-wrap; }
+      .answer-grid { background: #f5f8fc; border-radius: 6px; display: grid; gap: 8px 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 12px; padding: 10px; }
+      .figure-list { display: grid; gap: 10px; margin-top: 10px; }
+      .figure-img { max-height: 280px; max-width: 100%; object-fit: contain; }
+      @page { margin: 14mm; }
+      @media print {
+        body { margin: 0; }
+        .answer-card { break-inside: avoid; }
+      }
+    </style>
+    <script>
+      window.MathJax = {
+        tex: { inlineMath: [["$", "$"], ["\\\\(", "\\\\)"]], displayMath: [["$$", "$$"], ["\\\\[", "\\\\]"]] },
+        chtml: { linebreaks: { automatic: true, width: "container" } },
+        startup: { pageReady: () => MathJax.startup.defaultPageReady().then(() => setTimeout(() => window.print(), 350)) }
+      };
+    </script>
+    <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+  </head>
+  <body>
+    <h1>Answered Questions</h1>
+    <div class="export-meta">${escapeHtml(sorted.length)} questions - Generated ${escapeHtml(generatedAt)}</div>
+    ${cards || "<p>No answered questions to export.</p>"}
+  </body>
+</html>`;
+}
+
+async function exportAnsweredQuestionsPdf() {
+  if (!latestFilteredReviewRecords.length && !latestStudentReviewRecords.length) {
+    await loadStudentReview({ force: true });
+  }
+  const records = latestFilteredReviewRecords;
+  if (!records.length) {
+    setMessage(studentMessage, "No filtered answered questions to export.", "error");
+    return;
+  }
+  const ok = window.confirm(
+    `Export ${records.length} answered question(s) currently shown on this review screen? A print window will open; choose "Save as PDF" in the print dialog.`
+  );
+  if (!ok) return;
+  const printWindow = window.open("", "_blank");
+  if (!printWindow) {
+    setMessage(studentMessage, "Please allow popups to export the PDF.", "error");
+    return;
+  }
+  printWindow.document.open();
+  printWindow.document.write(buildAnsweredQuestionsPdfHtml(records));
+  printWindow.document.close();
 }
 
 function populateTopicFilter(selectEl, records, selected = "", extraTopics = []) {
@@ -3642,6 +3776,8 @@ async function showStudentAnsweredQuestionsForSubtopic(topic, subType, difficult
   }
   if (statusDetailDialog?.open) statusDetailDialog.close();
   switchProfileTab("review");
+  latestFilteredReviewRecords = records;
+  if (reviewExportPdfBtn) reviewExportPdfBtn.disabled = !records.length;
   renderReviewRecords(records, studentReviewList);
   populateTopicFilter(reviewFilterTopic, latestStudentReviewRecords, topic, latestStudentProgressTopics.map((row) => row.topic));
   if (reviewFilterTopic) reviewFilterTopic.value = topic || "";
@@ -3843,6 +3979,7 @@ async function loadStudentReview(options = {}) {
   const { data, progressData } = reviewPayload;
   const allRecords = Array.isArray(data.records) ? data.records : [];
   latestStudentReviewRecords = allRecords;
+  if (reviewExportPdfBtn) reviewExportPdfBtn.disabled = !allRecords.length;
   latestStudentProgressTopics = Array.isArray(progressData.topics) ? progressData.topics : [];
   const dailyRecords = allRecords.filter((row) => String(row.source_type || "daily") === "daily");
   renderStudentLearningStatusTable(latestStudentProgressTopics);
@@ -3855,6 +3992,8 @@ async function loadStudentReview(options = {}) {
     date: reviewFilterDate?.value
   });
   const sorted = sortReviewRecords(filtered, reviewSortField?.value || "date", reviewSortOrder?.value || "desc");
+  latestFilteredReviewRecords = sorted;
+  if (reviewExportPdfBtn) reviewExportPdfBtn.disabled = !sorted.length;
   renderReviewRecords(sorted, studentReviewList);
   await typeset(studentReviewList);
 }
@@ -5731,6 +5870,16 @@ if (reviewLoadBtn) {
       await loadStudentReview();
     } catch (error) {
       setMessage(studentMessage, error.message, "error");
+    }
+  });
+}
+
+if (reviewExportPdfBtn) {
+  reviewExportPdfBtn.addEventListener("click", async () => {
+    try {
+      await exportAnsweredQuestionsPdf();
+    } catch (error) {
+      setMessage(studentMessage, error.message || "Failed to export PDF.", "error");
     }
   });
 }
