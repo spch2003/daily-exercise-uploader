@@ -192,6 +192,7 @@ function createDailyExerciseService({ db, today, loadContext, loadProgress, scor
     const context = await loadContext(profile, date);
     const days = policy.planSchedule(context, date).map(day => ({
       date: day.date,
+      new_count: day.new_count,
       items: day.items.map(({ question_id, combo_key, ...item }) => item)
     }));
     return { date, days };

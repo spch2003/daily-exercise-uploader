@@ -1615,19 +1615,28 @@ async function loadDailySchedule() {
   dailyScheduleList.textContent = "Loading your schedule…";
   try {
     const { days } = await api("/api/student/schedule", { timeout_ms: 15000 });
-    dailyScheduleList.innerHTML = days.map(day => `
-      <details class="daily-schedule-day">
-        <summary><time datetime="${escapeHtml(day.date)}">${escapeHtml(day.date)}</time>
-          <span>${day.items.length ? day.items.length + " planned" : "No topics planned yet"}</span>
-        </summary>
-        <ul>${day.items.map(item => `
-          <li>
-            <span>${escapeHtml(item.topic)} × ${escapeHtml(item.difficulty)}<small>${escapeHtml(item.sub_type)}</small></span>
-            ${dailyReasonBadge(item)}
-            <small>${item.due_date ? "Due " + escapeHtml(item.due_date) : "Estimate"}</small>
-          </li>`).join("")}
-        </ul>
-      </details>`).join("");
+    dailyScheduleList.innerHTML = days.map(day => {
+      const newCount = Number(day.new_count || 0);
+      const total = day.items.length + newCount;
+      return `
+        <details class="daily-schedule-day">
+          <summary><time datetime="${escapeHtml(day.date)}">${escapeHtml(day.date)}</time>
+            <span>${total ? `${total} expected` : "No topics planned yet"}</span>
+          </summary>
+          <ul>${day.items.map(item => `
+            <li>
+              <span>${escapeHtml(item.topic)} × ${escapeHtml(item.difficulty)}<small>${escapeHtml(item.sub_type)}</small></span>
+              ${dailyReasonBadge(item)}
+              <small>${item.due_date ? "Due " + escapeHtml(item.due_date) : "Estimate"}</small>
+            </li>`).join("")}
+            ${newCount ? `<li>
+              <span>${newCount} new ${newCount === 1 ? "question" : "questions"} to draw<small>Drawn when that day's Daily Mission opens</small></span>
+              ${dailyReasonBadge({ reason: "new" })}
+              <small>Estimate</small>
+            </li>` : ""}
+          </ul>
+        </details>`;
+    }).join("");
     dailyScheduleList.querySelector(".daily-schedule-day:has(li)")?.setAttribute("open", "");
   } catch (error) {
     dailyScheduleList.textContent = error.message || "Your schedule could not be loaded.";

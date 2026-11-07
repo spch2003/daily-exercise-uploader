@@ -193,7 +193,7 @@ function reviewDates(stage, first) {
   return dates;
 }
 
-function planDay(context, date, excluded = new Set()) {
+function planDay(context, date, excluded = new Set(), draw = Math.random) {
   const { byCombo, frontier, lastTopic, lastCombo, start } = context;
   const review = [];
   const learning = [];
@@ -226,12 +226,23 @@ function planDay(context, date, excluded = new Set()) {
       fresh.push({ item, reason: item.level > start ? "advance" : "new" });
     }
   }
-  const rotate = (a, b) => (lastTopic.get(a.item.topic) || "").localeCompare(lastTopic.get(b.item.topic) || "") ||
-    (lastCombo.get(a.item.key) || "").localeCompare(lastCombo.get(b.item.key) || "") ||
+  const byTopicRecency = (a, b) => (lastTopic.get(a.item.topic) || "").localeCompare(lastTopic.get(b.item.topic) || "");
+  const byComboRecency = (a, b) => (lastCombo.get(a.item.key) || "").localeCompare(lastCombo.get(b.item.key) || "");
+  const byDateSalt = (a, b) =>
     sortSalt(context.studentId + date + a.item.key) - sortSalt(context.studentId + date + b.item.key);
+  const rotate = (a, b) => byTopicRecency(a, b) || byComboRecency(a, b) || byDateSalt(a, b);
   review.sort((a, b) => a.due.localeCompare(b.due) || rotate(a, b));
   learning.sort((a, b) => Number(b.reason === "confirm") - Number(a.reason === "confirm") || rotate(a, b));
-  fresh.sort(rotate);
+  if (draw) {
+    const topics = new Set(fresh.map(({ item }) => item.topic));
+    const topicRanks = new Map([...topics].map(topic => [topic, draw()]));
+    const comboRanks = new Map(fresh.map(({ item }) => [item.key, draw()]));
+    fresh.sort((a, b) => byTopicRecency(a, b) ||
+      topicRanks.get(a.item.topic) - topicRanks.get(b.item.topic) || byComboRecency(a, b) ||
+      comboRanks.get(a.item.key) - comboRanks.get(b.item.key) || byDateSalt(a, b));
+  } else {
+    fresh.sort(rotate);
+  }
 
   const picked = [];
   const topics = new Set();
@@ -289,9 +300,10 @@ function planSchedule(context, today) {
   const days = [];
   for (let offset = 1; offset <= 7; offset += 1) {
     const date = addDays(today, offset);
-    const items = planDay(context, date, seen);
-    for (const item of items) seen.add(item.combo_key);
-    days.push({ date, items });
+    const estimate = planDay(context, date, seen, null);
+    for (const item of estimate) seen.add(item.combo_key);
+    const items = estimate.filter(item => item.reason !== "new" && item.reason !== "advance");
+    days.push({ date, items, new_count: estimate.length - items.length });
   }
   return days;
 }

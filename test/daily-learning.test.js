@@ -91,7 +91,27 @@ test("the plan separates early reviews, mastered questions and per-topic progres
   assert.equal(plan.find(x => x.question_id === 2).reason, "advance");
   const days = policy.planSchedule(context, date);
   assert.equal(days.length, 7);
+  assert.equal(days[0].new_count, 2);
   const upcoming = days.flatMap(day => day.items.map(item => ({ ...item, date: day.date })));
+  assert.ok(upcoming.every(item => item.reason === "review"));
   assert.equal(upcoming.find(x => x.question_id === 6).date, "2026-11-10");
   assert.equal(progress.get(policy.comboKey(problems[5])).next_review_date, "2026-11-10");
+});
+
+test("new sub-topics are drawn among equally recent eligible topics", () => {
+  const date = "2026-11-07";
+  const problems = Array.from({ length: 11 }, (_, index) => ({
+    id: index + 1, topic: `Topic ${index + 1}`, difficulty: "lv2", sub_type: "Core"
+  }));
+  problems.push({ ...problems[1], id: 12, sub_type: "Extension" });
+  const history = [{ question_id: 1, assignment_date: "2026-11-06" }];
+  const context = policy.createContext({ problems, history, progress: new Map(), startDifficulty: "lv2", studentId: "test", date });
+
+  let rank = 0;
+  const firstDraw = policy.planDay(context, date, new Set(), () => ++rank / 100);
+  rank = 0;
+  const secondDraw = policy.planDay(context, date, new Set(), () => 1 - ++rank / 100);
+
+  assert.deepEqual(firstDraw.map(item => item.question_id), [2, 3, 4, 5, 6, 7, 8, 9]);
+  assert.deepEqual(secondDraw.map(item => item.question_id), [11, 10, 9, 8, 7, 6, 5, 4]);
 });
