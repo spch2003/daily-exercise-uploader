@@ -3,13 +3,13 @@
 This app supports:
 - School account login/signup
 - Role-based access (`student` / `teacher`)
-- Automatic daily assignment of **5 questions** per student
+- Adaptive Daily Missions with up to **8 main questions** and at most **10 including immediate retests**
 - Teacher dashboard for completion and accuracy
 - Questions stored in Supabase table `public.problems`
 
 ## 1. Supabase SQL setup
 
-Run `supabase-schema.sql` in Supabase SQL Editor.
+For a fresh database, run `supabase-schema.sql`, then run the SQL files in `supabase/migrations/` in order. Apply the new migration to an existing database before starting the updated server.
 
 This creates/updates:
 - `public.problems`
@@ -80,11 +80,13 @@ Notes:
 - `POST /api/auth/register`
 - `GET /api/auth/me`
 - `GET /api/student/daily`
+- `GET /api/student/schedule`
 - `POST /api/student/submit`
 - `GET /api/teacher/overview`
 
 ## Daily assignment behavior
 
-- When a student opens daily tasks, the server checks `daily_assignments` for that date.
-- If fewer than 5 exist, it auto-assigns more from `public.problems`.
-- It prefers questions matching the student grade, then falls back to any grade.
+- A Daily Mission opens on the Hong Kong task day and aims for three reviews, three learning or backfill questions, and two new questions within the student's scope.
+- A sub-topic enters review after correct answers on two separate task days. Successful reviews are due on days 3, 7, 14, and 30. Mastered sub-topics retire from the daily pool, and each topic can advance independently.
+- An immediate retest uses a different question and counts towards the ten-question limit. Every three counted errors in the same sub-topic trigger a new teacher alert.
+- Run `npm test` to verify the daily learning policy.

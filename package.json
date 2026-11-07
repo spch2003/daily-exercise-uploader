@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node src/server.js",
+    "test": "node --test",
     "migrate:tikz-svg": "node scripts/migrate-tikz-to-svg.js"
   },
   "dependencies": {

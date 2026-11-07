@@ -52,6 +52,9 @@ const assessmentMessage = document.getElementById("assessment-message");
 const studentProfilePanel = document.getElementById("student-profile-panel");
 const studentPracticePanel = document.getElementById("student-practice-panel");
 const studentTodayReviewPage = document.getElementById("student-today-review-page");
+const dailyMessage = document.getElementById("daily-message") || document.getElementById("student-message");
+const dailySchedule = document.getElementById("daily-schedule");
+const dailyScheduleList = document.getElementById("daily-schedule-list");
 const studentAvatarShopPage = document.getElementById("student-avatar-shop-page");
 const shopPreviewCharacters = document.getElementById("shop-preview-characters");
 const shopPreviewFrames = document.getElementById("shop-preview-frames");
@@ -230,7 +233,7 @@ let me = null;
 let clientConfig = null;
 let initPromise = null;
 const DIAMOND_RULE_TOOLTIP =
-  "Diamond rules: Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily streak bonus (finish >=5/day): 3d +5, 7d +10, 14d +20, 21d +40.";
+  "Diamond rules: Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily Mission streak: 3d +5, 7d +10, 14d +20, 21d +40.";
 let verifiedBrowserEmail = "";
 const STUDENT_THEME_KEY = "student_theme_mode";
 const STUDENT_PAGE_KEY = "student_page_tab";
@@ -312,7 +315,6 @@ let dailyAssignments = [];
 let dailyDate = "";
 let currentDailyIndex = 0;
 let dailyReviewAvailable = false;
-let lastSubmittedQuestionId = null;
 const roughWorkDataByQuestion = new Map();
 const roughWorkHistoryByQuestion = new Map();
 const roughWorkToolByQuestion = new Map();
@@ -562,7 +564,7 @@ function setMessage(el, text, type = "") {
 async function askWrongFeedbackChoice() {
   if (!wrongFeedbackDialog || typeof wrongFeedbackDialog.showModal !== "function") {
     return window.confirm(
-      "Why was it wrong?\nOK = Careless: one retest will be scheduled; pass it to keep your review schedule.\nCancel = Forgot: this type returns to learning mode."
+      "Why was it wrong?\nOK = Careless: take one immediate retest to keep your review round.\nCancel = Forgot: this sub-topic returns to learning."
     )
       ? "careless"
       : "forgot";
@@ -571,9 +573,10 @@ async function askWrongFeedbackChoice() {
     const onClose = () => {
       wrongFeedbackDialog.removeEventListener("close", onClose);
       const v = String(wrongFeedbackDialog.returnValue || "").trim();
-      resolve(v === "careless" ? "careless" : "forgot");
+      resolve(v === "careless" || v === "forgot" ? v : null);
     };
     wrongFeedbackDialog.addEventListener("close", onClose);
+    wrongFeedbackDialog.returnValue = "";
     wrongFeedbackDialog.showModal();
   });
 }
@@ -811,6 +814,8 @@ async function switchStudentPage(page) {
     await loadStudentReview();
   } else if (target === "practice") {
     await loadPracticeOptions();
+  } else if (target === "daily" && dailyDate !== today()) {
+    await loadStudentDaily();
   } else if (target === "today-review") {
     renderTodayReview(dailyAssignments, dailyDate);
     await typeset(dailyReviewList || studentList);
@@ -1590,23 +1595,66 @@ async function loadMe() {
   }
 }
 
+function dailyReasonBadge(item) {
+  const labels = {
+    review: "Review round " + item.review_round,
+    confirm: "Cross-day check",
+    learning: "Keep learning",
+    backfill: Number(item.evidence_count) > 0 ? "Backfill check 2" : "Backfill check 1",
+    new: "New sub-topic",
+    advance: "Next level",
+    retest: "Immediate retest",
+    existing: "Daily question"
+  };
+  const reason = Object.hasOwn(labels, item.reason) ? item.reason : "existing";
+  return `<span class="daily-reason" data-reason="${reason}">${escapeHtml(labels[reason])}</span>`;
+}
+
+async function loadDailySchedule() {
+  if (!dailySchedule?.open || !dailyScheduleList) return;
+  dailyScheduleList.textContent = "Loading your schedule…";
+  try {
+    const { days } = await api("/api/student/schedule", { timeout_ms: 15000 });
+    dailyScheduleList.innerHTML = days.map(day => `
+      <details class="daily-schedule-day">
+        <summary><time datetime="${escapeHtml(day.date)}">${escapeHtml(day.date)}</time>
+          <span>${day.items.length ? day.items.length + " planned" : "No topics planned yet"}</span>
+        </summary>
+        <ul>${day.items.map(item => `
+          <li>
+            <span>${escapeHtml(item.topic)} × ${escapeHtml(item.difficulty)}<small>${escapeHtml(item.sub_type)}</small></span>
+            ${dailyReasonBadge(item)}
+            <small>${item.due_date ? "Due " + escapeHtml(item.due_date) : "Estimate"}</small>
+          </li>`).join("")}
+        </ul>
+      </details>`).join("");
+    dailyScheduleList.querySelector(".daily-schedule-day:has(li)")?.setAttribute("open", "");
+  } catch (error) {
+    dailyScheduleList.textContent = error.message || "Your schedule could not be loaded.";
+  }
+}
+
+if (dailySchedule) dailySchedule.addEventListener("toggle", loadDailySchedule);
+
 function renderTodayReview(assignments, date) {
   if (!studentTodayReviewPage || !dailyReviewStats || !dailyReviewList) return;
   const allItems = Array.isArray(assignments) ? assignments : [];
   const submittedItems = allItems.filter((x) => Boolean(x.submission));
-  const missionDone = allItems.length > 0 && submittedItems.length >= allItems.length;
-  studentTodayReviewPage.hidden = !missionDone;
-  if (!missionDone) return;
+  if (!dailyReviewAvailable) {
+    studentTodayReviewPage.hidden = true;
+    return;
+  }
 
-  const correctCount = submittedItems.filter((x) => x.submission?.is_correct === true).length;
-  const total = allItems.length;
+  const main = submittedItems.filter(item => item.kind !== "retest");
+  const correctCount = main.filter((x) => x.submission?.is_correct === true).length;
+  const total = allItems.filter(item => item.kind !== "retest").length;
   const avgTime = Math.round(
-    submittedItems.reduce((acc, x) => acc + Number(x.submission?.time_spent_seconds || 0), 0) / Math.max(submittedItems.length, 1)
+    main.reduce((acc, x) => acc + Number(x.submission?.time_spent_seconds || 0), 0) / Math.max(main.length, 1)
   );
 
   dailyReviewStats.innerHTML = `
     <div class="stat"><strong>Date:</strong> ${escapeHtml(date)}</div>
-    <div class="stat"><strong>Done:</strong> ${submittedItems.length}/${total}</div>
+    <div class="stat"><strong>Main questions:</strong> ${main.length}/${total}</div>
     <div class="stat"><strong>Correct:</strong> ${Math.round((correctCount / Math.max(total, 1)) * 100)}%</div>
     <div class="stat"><strong>Avg Time:</strong> ${formatSeconds(avgTime)}</div>
   `;
@@ -1620,6 +1668,7 @@ function renderTodayReview(assignments, date) {
           <summary>
             <span class="badge ${state.badgeClass}">${escapeHtml(state.text)}</span>
             Question ${item.slot} - ${escapeHtml(String(q.topic || "Topic"))} - ${escapeHtml(String(q.difficulty || "-"))}
+            ${dailyReasonBadge(item)}
           </summary>
           <div class="question-body" id="today-review-question-${item.assignment_id}"></div>
           <div class="summary">
@@ -1645,29 +1694,21 @@ function renderTodayReview(assignments, date) {
   });
 }
 
-async function refreshDailyUiAfterLocalSubmission() {
-  const submittedCount = dailyAssignments.filter((item) => item.submission).length;
-  const totalCount = dailyAssignments.length;
-  updateDailyMissionIndicator(submittedCount, totalCount);
-  dailyReviewAvailable = totalCount > 0 && submittedCount >= totalCount;
-  await renderCurrentDailyQuestion();
-  renderTodayReview(dailyAssignments, dailyDate);
-}
-
-function updateDailyMissionIndicator(submittedCount, totalCount) {
-  const submitted = Number(submittedCount || 0);
-  const done = submitted >= 5;
-  todayMissionCompleted = done;
+function updateDailyMissionIndicator(completed, requiredCount) {
+  todayMissionCompleted = completed === true;
   if (profileDailyMissionAlert) {
-    profileDailyMissionAlert.hidden = done;
-    profileDailyMissionAlert.style.display = done ? "none" : "inline-grid";
+    const hide = todayMissionCompleted || Number(requiredCount) === 0;
+    profileDailyMissionAlert.hidden = hide;
+    profileDailyMissionAlert.style.display = hide ? "none" : "inline-grid";
   }
 }
 
 async function renderCurrentDailyQuestion() {
   if (!dailyAssignments.length) {
-    studentList.innerHTML = "<p>No questions assigned yet.</p>";
-    if (dailyProgressLabel) dailyProgressLabel.textContent = "Question 0 / 0";
+    studentList.innerHTML = "<p>There are no questions due for your Daily Mission today.</p>";
+    if (dailyProgressLabel) dailyProgressLabel.textContent = "No questions due";
+    if (dailyPrevBtn) dailyPrevBtn.disabled = true;
+    if (dailyNextBtn) dailyNextBtn.disabled = true;
     updateDailyCompletionActions(false);
     return;
   }
@@ -1675,6 +1716,8 @@ async function renderCurrentDailyQuestion() {
   const item = dailyAssignments[currentDailyIndex];
   const q = item.question || {};
   const isSubmitted = Boolean(item.submission);
+  const needsChoice = item.submission?.feedback_state === "pending";
+  const showAnswer = isSubmitted && !needsChoice && item.submission?.feedback_state !== "retest";
   const answerValue = String(item.submission?.answer_text || "").trim();
   const state = buildSubmissionState(item.submission);
   const questionType = String(q.question_type || "").trim();
@@ -1682,8 +1725,8 @@ async function renderCurrentDailyQuestion() {
   const mcLabels = detectMcLabels(q.latex_code || "");
   const topic = String(q.topic || "").trim() || "General";
   const difficulty = String(q.difficulty || "").trim() || "-";
-  const hasSolution = isSubmitted && String(q.solution_latex || "").trim();
-  const hasCorrectAnswer = isSubmitted && String(q.answer_text || "").trim();
+  const hasSolution = showAnswer && String(q.solution_latex || "").trim();
+  const hasCorrectAnswer = showAnswer && String(q.answer_text || "").trim();
   const isLastQuestion = currentDailyIndex >= dailyAssignments.length - 1;
 
   studentList.innerHTML = `
@@ -1691,6 +1734,7 @@ async function renderCurrentDailyQuestion() {
       <div class="question-head">
         <div class="question-head-main">
           <strong>Question ${item.slot}</strong>
+          ${dailyReasonBadge(item)}
           <div class="inline-tools rough-tools top-rough-tools">
             <button type="button" class="secondary tool-btn draw-main-btn" id="rough-draw-${q.id}" title="Draw on screen" aria-label="Draw on screen">Draw On Screen</button>
             <button type="button" class="secondary tool-btn icon-tool-btn pen-tool-btn" id="rough-pen-${q.id}" hidden title="Pen colors" aria-label="Pen colors"><span class="tool-art pen-art" aria-hidden="true"></span></button>
@@ -1748,6 +1792,7 @@ async function renderCurrentDailyQuestion() {
           <button type="button" data-submit-id="${q.id}" data-date="${escapeHtml(item.assignment_date)}" ${
             isSubmitted ? "disabled" : ""
           }>${isSubmitted ? "Submitted" : "Submit Answer"}</button>
+          ${needsChoice ? '<button type="button" class="secondary" data-daily-wrong-choice>Choose Forgot or Careless</button>' : ""}
         </div>
         ${
           hasSolution
@@ -1792,82 +1837,53 @@ async function renderCurrentDailyQuestion() {
     setSelectedMcAnswer(group, group.getAttribute("data-selected") || "");
   });
 
+  const choiceBtn = studentList.querySelector("[data-daily-wrong-choice]");
+  if (choiceBtn) {
+    choiceBtn.addEventListener("click", async () => {
+      choiceBtn.disabled = true;
+      try {
+        await chooseDailyWrongFeedback(q.id, item.assignment_date);
+      } catch (error) {
+        setMessage(dailyMessage, error.message, "error");
+      } finally {
+        choiceBtn.disabled = false;
+      }
+    });
+  }
   const submitBtn = studentList.querySelector("button[data-submit-id]");
   if (submitBtn) {
     submitBtn.addEventListener("click", async () => {
       const questionId = Number(submitBtn.getAttribute("data-submit-id"));
       const assignmentDate = submitBtn.getAttribute("data-date");
-      const mcAnswer = getSelectedMcAnswer(questionId);
-      const textarea = studentList.querySelector(`textarea[data-question-id='${questionId}']`);
-      const textAnswer = String(textarea?.value || "").trim();
-      const answer = mcAnswer || textAnswer;
+      const textarea = studentList.querySelector("textarea[data-question-id='" + questionId + "']");
+      const answer = getSelectedMcAnswer(questionId) || String(textarea?.value || "").trim();
 
       if (!answer) {
-        setMessage(studentMessage, "Please choose/type an answer before submitting.", "error");
+        setMessage(dailyMessage, "Please choose or type an answer before submitting.", "error");
         return;
       }
       disableDrawModeForQuestion(questionId);
-
       submitBtn.disabled = true;
       try {
         const started = questionStartTimes.get(questionId);
         const elapsedSeconds = started ? Math.max(1, Math.round((Date.now() - started) / 1000)) : null;
-        const submitResult = await api("/api/student/submit", {
+        const result = await api("/api/student/submit", {
           method: "POST",
           body: JSON.stringify({
-            question_id: questionId,
-            assignment_date: assignmentDate,
-            answer_text: answer,
-            time_spent_seconds: elapsedSeconds,
-            careless_error: false,
-            defer_wrong_feedback: true
+            question_id: questionId, assignment_date: assignmentDate,
+            answer_text: answer, time_spent_seconds: elapsedSeconds
           })
         });
-        const reward = Number(submitResult?.token_reward || 0);
-        if (Number.isFinite(Number(submitResult?.token_balance))) {
-          serverTokenBalance = Number(submitResult.token_balance);
-          setTopTokenBadge();
-        }
-        clearStudentProfileCache();
-        const progressMessage = String(submitResult?.progress_feedback?.message || "").trim();
-        if (progressMessage) {
-          setMessage(studentMessage, progressMessage, submitResult?.progress_feedback?.teacher_notified ? "error" : "success");
-        } else if (reward > 0) setMessage(studentMessage, `Answer submitted. +${reward} diamonds`, "success");
-        else setMessage(studentMessage, "Answer submitted.", "success");
+        updateDailyReward(result);
         clearDrawStateForQuestion(questionId);
-        lastSubmittedQuestionId = questionId;
         questionStartTimes.delete(questionId);
-        const currentItem = dailyAssignments[currentDailyIndex];
-        if (currentItem && Number(currentItem.question?.id) === questionId) {
-          currentItem.submission = {
-            id: submitResult?.id || null,
-            question_id: questionId,
-            answer_text: answer,
-            is_correct: submitResult?.is_correct,
-            submitted_at: submitResult?.submitted_at || new Date().toISOString(),
-            time_spent_seconds: elapsedSeconds
-          };
-        }
-        await refreshDailyUiAfterLocalSubmission();
-        if (submitResult?.needs_wrong_feedback === true) {
-          const feedbackChoice = await askWrongFeedbackChoice();
-          const feedbackResult = await api(`/api/student/submit/${encodeURIComponent(questionId)}/wrong-feedback`, {
-            method: "POST",
-            body: JSON.stringify({
-              assignment_date: assignmentDate,
-              time_spent_seconds: elapsedSeconds,
-              careless_error: feedbackChoice === "careless"
-            })
-          });
-          const feedbackMessage = String(feedbackResult?.progress_feedback?.message || "").trim();
-          if (feedbackMessage) {
-            setMessage(studentMessage, feedbackMessage, feedbackResult?.progress_feedback?.teacher_notified ? "error" : "success");
-          }
-          clearStudentProfileCache();
-          await refreshDailyUiAfterLocalSubmission();
-        }
+        await loadStudentDaily({ focusQuestionId: questionId, showAlerts: false });
+        const message = result.progress_feedback?.message ||
+          (result.token_reward > 0 ? "Answer submitted. +" + result.token_reward + " diamonds" : "Answer submitted.");
+        setMessage(dailyMessage, message, "success");
+        if (result.needs_wrong_feedback) await chooseDailyWrongFeedback(questionId, assignmentDate);
       } catch (error) {
-        setMessage(studentMessage, error.message, "error");
+        setMessage(dailyMessage, error.message, "error");
       } finally {
         submitBtn.disabled = false;
       }
@@ -1880,7 +1896,7 @@ async function renderCurrentDailyQuestion() {
   saveDailyCursor(dailyDate, currentDailyIndex);
   if (dailyPrevBtn) dailyPrevBtn.disabled = currentDailyIndex <= 0;
   if (dailyNextBtn) {
-    const canForward = isSubmitted && currentDailyIndex < dailyAssignments.length - 1;
+    const canForward = isSubmitted && !needsChoice && currentDailyIndex < dailyAssignments.length - 1;
     dailyNextBtn.disabled = !canForward;
   }
   updateDailyCompletionActions(isLastQuestion && isSubmitted);
@@ -2318,71 +2334,68 @@ if (!roughKeyboardBound) {
   window.addEventListener("resize", resizeCanvas);
 }
 
-async function loadStudentDaily() {
+function updateDailyReward(result) {
+  if (result.token_balance != null && Number.isFinite(Number(result.token_balance))) {
+    serverTokenBalance = Number(result.token_balance);
+    setTopTokenBadge();
+  }
+  clearStudentProfileCache();
+}
+
+async function chooseDailyWrongFeedback(questionId, date) {
+  const choice = await askWrongFeedbackChoice();
+  if (!choice) return;
+  const result = await api("/api/student/submit/" + encodeURIComponent(questionId) + "/wrong-feedback", {
+    method: "POST",
+    body: JSON.stringify({ assignment_date: date, careless_error: choice === "careless" })
+  });
+  updateDailyReward(result);
+  await loadStudentDaily({
+    focusAssignmentId: result.retest_assignment_id,
+    focusQuestionId: questionId,
+    showAlerts: false
+  });
+  if (result.progress_feedback?.message) setMessage(dailyMessage, result.progress_feedback.message, "success");
+}
+
+async function loadStudentDaily(options = {}) {
   try {
-    setMessage(studentMessage, "");
+    setMessage(dailyMessage, "");
     const date = today();
-    const data = await api(`/api/student/daily?date=${encodeURIComponent(date)}`, { timeout_ms: 15000 });
-    const alertData = await api("/api/student/alerts", { timeout_ms: 5000 }).catch(() => ({ alerts: [] }));
-    const alerts = Array.isArray(alertData.alerts) ? alertData.alerts : [];
-
-    dailyAssignments = Array.isArray(data.assignments) ? data.assignments : [];
+    const data = await api("/api/student/daily?date=" + encodeURIComponent(date), { timeout_ms: 15000 });
+    dailyAssignments = data.assignments || [];
     dailyDate = data.date || date;
-    if (!dailyAssignments.length) {
-      updateDailyMissionIndicator(0, 0);
-      if (dailyPracticeMoreBtn) {
-        dailyPracticeMoreBtn.disabled = true;
-        dailyPracticeMoreBtn.hidden = true;
-      }
-      studentList.innerHTML = "<p>No questions assigned yet.</p>";
-      if (studentTodayReviewPage) studentTodayReviewPage.hidden = true;
-      if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = true;
-      setMessage(studentMessage, "No assignment found.", "error");
-      return;
-    }
-
-    const firstPending = dailyAssignments.findIndex((x) => !x.submission);
-    const submittedCount = dailyAssignments.filter((item) => item.submission).length;
-    const correctCount = dailyAssignments.filter((item) => item.submission?.is_correct === true).length;
-    const totalCount = dailyAssignments.length;
-    updateDailyMissionIndicator(submittedCount, totalCount);
-    const allAssignedDone = totalCount > 0 && submittedCount >= totalCount;
-    dailyReviewAvailable = allAssignedDone;
+    dailyReviewAvailable = data.completed === true;
+    updateDailyMissionIndicator(dailyReviewAvailable, data.required_count);
+    if (studentTodayReviewLink) studentTodayReviewLink.disabled = !dailyReviewAvailable;
     updateDailyCompletionActions(false);
 
-    const savedIndex = loadDailyCursor(dailyDate);
-    if (savedIndex !== null && savedIndex >= 0 && savedIndex < dailyAssignments.length) {
-      currentDailyIndex = savedIndex;
-    } else if (lastSubmittedQuestionId) {
-      const idx = dailyAssignments.findIndex((x) => Number(x.question?.id) === Number(lastSubmittedQuestionId));
-      if (idx >= 0) currentDailyIndex = idx;
-      else currentDailyIndex = firstPending >= 0 ? firstPending : dailyAssignments.length - 1;
-    } else {
-      currentDailyIndex = firstPending >= 0 ? firstPending : dailyAssignments.length - 1;
-    }
-
-    setMessage(studentMessage, "");
-    if (alerts.length) {
-      setMessage(
-        studentMessage,
-        `Teacher support needed: ${alerts.length} question type(s) are paused. Your teacher has been notified. Please find your teacher for help with those question types.`,
-        "error"
-      );
-    }
+    const pending = dailyAssignments.findIndex(item => item.assignment_id === data.next_assignment_id);
+    const immediate = pending >= 0 && (
+      dailyAssignments[pending].kind === "retest" ||
+      dailyAssignments[pending].submission?.feedback_state === "pending"
+    );
+    const requested = dailyAssignments.findIndex(item => options.focusAssignmentId != null
+      ? item.assignment_id === options.focusAssignmentId
+      : item.question?.id === options.focusQuestionId);
+    const saved = loadDailyCursor(dailyDate);
+    if (immediate) currentDailyIndex = pending;
+    else if (requested >= 0 && (pending < 0 || requested <= pending)) currentDailyIndex = requested;
+    else if (saved != null && saved >= 0 && saved < dailyAssignments.length && (pending < 0 || saved <= pending)) currentDailyIndex = saved;
+    else currentDailyIndex = pending >= 0 ? pending : Math.max(0, dailyAssignments.length - 1);
 
     await renderCurrentDailyQuestion();
     renderTodayReview(dailyAssignments, dailyDate);
     await typeset(dailyReviewList || studentList);
-
-  } catch (error) {
-    updateDailyMissionIndicator(0, 0);
-    if (dailyPracticeMoreBtn) {
-      dailyPracticeMoreBtn.disabled = true;
-      dailyPracticeMoreBtn.hidden = true;
+    if (dailySchedule?.open) void loadDailySchedule();
+    if (options.showAlerts !== false) {
+      const alerts = await api("/api/student/alerts", { timeout_ms: 5000 }).catch(() => ({ alerts: [] }));
+      if (alerts.alerts?.length) {
+        setMessage(dailyMessage, "Your teacher has " + alerts.alerts.length + " open learning alerts. You can continue practising.");
+      }
     }
-    studentList.innerHTML = "<p>Failed to load daily questions.</p>";
-    if (dailyGoReviewBtn) dailyGoReviewBtn.hidden = true;
-    setMessage(studentMessage, error.message || "Failed to load daily questions.", "error");
+  } catch (error) {
+    setMessage(dailyMessage, error.message || "Failed to load daily questions.", "error");
   }
 }
 
@@ -2505,7 +2518,7 @@ async function loadStudentStats(options = {}) {
   const data = cached || await api("/api/student/stats");
   if (!cached) studentStatsCache = { value: data, loadedAt: Date.now() };
   serverTokenBalance = Number(data.token_balance || 0);
-  updateDailyMissionIndicator(Number(data.submitted_today || 0), 5);
+  updateDailyMissionIndicator(data.finished_today === true, data.required_today);
   studentStats.innerHTML = "";
   renderStudentRadar(data);
   renderClassTitles([]);
@@ -3254,6 +3267,7 @@ function reviewSourceLabel(row) {
   const sourceType = String(row?.source_type || "daily");
   if (sourceType === "initial_assessment") return "Initial test";
   if (sourceType === "practice") return "Practice";
+  if (sourceType === "retest") return "Immediate retest";
   return "Daily";
 }
 
@@ -3528,7 +3542,8 @@ function renderTopicLevelMatrix(target, records, levels, onTopicClick = showStud
 }
 
 function renderTeacherStatusTopicMatrix(target, records, levels, progressTopics) {
-  renderTopicLevelMatrix(target, records, levels, (topic) => showTeacherStudentTopicStatus(topic, progressTopics || []));
+  renderTopicLevelMatrix(target, records.filter(row => row.source_type !== "retest"), levels,
+    (topic) => showTeacherStudentTopicStatus(topic, progressTopics || []));
 }
 
 async function showTeacherStudentTopicStatus(topic, topics) {
@@ -3918,7 +3933,7 @@ function teacherStatusNote(status) {
     KNOWN: "Review mode: student is following the spaced review schedule.",
     MASTERED: "Mastered: review cycle completed.",
     BACKFILL: "Backfill: checking skipped lower-level foundations.",
-    FROZEN: "Frozen: paused for teacher support after repeated errors."
+    FROZEN: "Learning continues after teacher notification."
   };
   return notes[s] || "No status yet.";
 }
@@ -5906,7 +5921,7 @@ if (dailyNextBtn) {
   dailyNextBtn.addEventListener("click", async () => {
     if (!dailyAssignments.length) return;
     const current = dailyAssignments[currentDailyIndex];
-    if (!current?.submission) {
+    if (!current?.submission || current.submission.feedback_state === "pending") {
       setMessage(studentMessage, "Submit this question before going forward.", "error");
       return;
     }

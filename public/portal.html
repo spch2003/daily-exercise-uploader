@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/portal.css?v=20260511e" />
+    <link rel="stylesheet" href="/portal.css?v=20261107a" />
   </head>
   <body>
     <main class="container">
@@ -78,7 +78,7 @@
               id="top-token-badge"
               class="diamond-badge"
               hidden
-              title="Diamond rules: Start with 0. Complete the initial placement test +100. Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily streak bonus (finish >=5/day): 3d +5, 7d +10, 14d +20, 21d +40."
+              title="Diamond rules: Start with 0. Complete the initial placement test +100. Correct +3, wrong +0, correct within 30s +1, 3 correct in a row +2, 5 correct in a row +4. Daily Mission streak: 3d +5, 7d +10, 14d +20, 21d +40."
             >
               💎 0
             </div>
@@ -155,11 +155,17 @@
             <button id="close-daily-overlay-btn" type="button" class="secondary floating-shop-close-btn" aria-label="Close daily">✕</button>
             <div class="inline-tools">
               <button id="daily-prev-btn" type="button" class="secondary">Previous</button>
-              <span id="daily-progress-label" class="stat">Question 1 / 5</span>
+              <span id="daily-progress-label" class="stat">Daily Mission</span>
               <button id="daily-next-btn" type="button" class="secondary">Next</button>
               <button id="daily-go-review-btn" type="button" hidden>Daily Review</button>
               <button id="daily-practice-more-btn" type="button" class="secondary" hidden>Practice more</button>
             </div>
+            <p id="daily-message" class="message" aria-live="polite"></p>
+            <details id="daily-schedule" class="daily-schedule">
+              <summary>Next 7 days</summary>
+              <p class="hint">Review dates follow your current progress. Other entries are estimates and can change as you answer.</p>
+              <div id="daily-schedule-list" aria-live="polite"></div>
+            </details>
             <div id="student-list" class="question-list"></div>
           </section>
 
@@ -222,7 +228,7 @@
             <div class="top-row">
               <div>
                 <h3>Practice mode</h3>
-                <p class="hint">Choose any scope you want, or leave everything as All for random practice. These questions can earn diamonds and count in your Power Pentagon, but they do not change your daily 5 questions or learning status.</p>
+                <p class="hint">Choose a scope or leave everything as All for random practice. Practice earns diamonds and counts towards your Power Pentagon statistics. Your Daily Mission sets the learning status for each sub-topic.</p>
               </div>
               <button id="practice-back-profile-btn" type="button" class="secondary">Back to profile</button>
             </div>
@@ -458,7 +464,7 @@
       <form method="dialog" class="subpanel">
         <h4>This answer is wrong</h4>
         <p><strong>Forgot</strong>: this type returns to learning mode and you need to build it again.</p>
-        <p><strong>Careless</strong>: you will get one retest; passing it keeps your review schedule, but missing it returns this type to learning mode.</p>
+        <p><strong>Careless</strong> gives you one immediate retest. Passing it keeps you on the same review round. A wrong retest returns this sub-topic to learning.</p>
         <div class="inline-tools">
           <button id="wrong-not-understand-btn" value="forgot" type="submit">Forgot</button>
           <button id="wrong-careless-btn" value="careless" type="submit" class="secondary">Careless</button>
@@ -542,7 +548,7 @@
     <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <script type="module" src="https://cdn.jsdelivr.net/npm/@google/model-viewer@4.0.0/dist/model-viewer.min.js"></script>
     <script src="/vendor/supabase.js?v=20260502a"></script>
-    <script src="/portal.js?v=20260525a"></script>
+    <script src="/portal.js?v=20261107a"></script>
     <script src="/login-fallback.js?v=20260502b"></script>
   </body>
 </html>

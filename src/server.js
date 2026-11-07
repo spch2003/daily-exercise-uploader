@@ -1,6 +1,8 @@
 ﻿const path = require("path");
 const fs = require("fs/promises");
 const express = require("express");
+const dailyPolicy = require("./daily-learning");
+const { createDailyExerciseService, isMain } = require("./daily-exercise-service");
 const crypto = require("crypto");
 const zlib = require("zlib");
 const { createClient } = require("@supabase/supabase-js");
@@ -55,8 +57,6 @@ const PROGRESS_STATUS = {
   BACKFILL: "BACKFILL",
   FROZEN: "FROZEN"
 };
-const CARELESS_MIN_SECONDS = Math.max(0, Number(process.env.CARELESS_MIN_SECONDS || 10));
-const STARTER_TOKENS = 0;
 const INITIAL_ASSESSMENT_COMPLETION_TOKENS = 100;
 
 const hasCloudConfig = Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY);
@@ -284,23 +284,42 @@ function computeCurrentStreakDaysFromDateSet(dateKeys, endDateKey = getTodayDate
   return streak;
 }
 
-function buildDailyDoneDateSetFromSubmissions(submissions) {
+function buildLegacyDoneDateSet(submissions) {
   const counts = new Map();
   for (const row of submissions || []) {
-    const key = toDateKey(row.assignment_date || row.submitted_at);
+    if (row.assignment_id) continue;
+    const key = toDateKey(row.assignment_date);
     if (!key) continue;
     counts.set(key, Number(counts.get(key) || 0) + 1);
   }
   return new Set([...counts.entries()].filter(([, n]) => Number(n) >= 5).map(([k]) => k));
 }
 
+async function getCompletedDates(studentIds, submissions) {
+  const byStudent = new Map(studentIds.map(id => [id, []]));
+  for (const row of submissions || []) {
+    byStudent.get(row.student_id)?.push(row);
+  }
+  const result = new Map(studentIds.map(id => [id, buildLegacyDoneDateSet(byStudent.get(id))]));
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase.from("student_daily_plans").select("student_id,assignment_date,completed_at")
+      .in("student_id", studentIds).order("student_id").order("assignment_date").range(offset, offset + 999);
+    if (error) throw new Error(error.message);
+    for (const row of data) {
+      const dates = result.get(row.student_id);
+      if (row.completed_at) dates.add(row.assignment_date);
+      else dates.delete(row.assignment_date);
+    }
+    if (data.length < 1000) return result;
+  }
+}
+
 function clamp01To100(x) {
   return Math.max(0, Math.min(100, Math.round(Number(x) || 0)));
 }
 
-function computeAspectMetrics(submissions, diamondsUsed = 0) {
+function computeAspectMetrics(submissions, diamondsUsed = 0, doneDates = new Set()) {
   const stats = computeSubmissionStats(submissions || []);
-  const doneDates = buildDailyDoneDateSetFromSubmissions(submissions || []);
   const currentStreakDays = computeCurrentStreakDaysFromDateSet(doneDates);
   const longestStreakDays = computeLongestStreakDaysFromDateSet(doneDates);
   const avgSec = Number(stats.average_time_seconds || 0);
@@ -406,12 +425,12 @@ async function fetchSelectedAvatarFrameMap(studentIds) {
   }
 }
 
-async function buildClassAnalytics(className, targetStudentId, fallbackSubmissions) {
+async function buildClassAnalytics(className, targetStudentId, fallbackSubmissions, fallbackDates = new Set()) {
   const classKey = String(className || "").trim();
   const labels = ["Combo", "Aim", "Flash", "Grind", "Fortune"];
   if (!classKey) {
     const targetDiamond = 0;
-    const target = computeAspectMetrics(fallbackSubmissions || [], targetDiamond);
+    const target = computeAspectMetrics(fallbackSubmissions || [], targetDiamond, fallbackDates);
     return { labels, student: target.metrics, class_avg: Object.fromEntries(labels.map((k) => [k, 0])), student_values: target.aspect_values, leaders: [], titles: [], classmates_power: [] };
   }
 
@@ -447,13 +466,15 @@ async function buildClassAnalytics(className, targetStudentId, fallbackSubmissio
   const [subsResult, practiceRows, diamondsMap] = await Promise.all([
     supabase
       .from("student_submissions")
-      .select("student_id,assignment_date,is_correct,time_spent_seconds,submitted_at")
+      .select("student_id,assignment_date,is_correct,time_spent_seconds,submitted_at,assignment_id,assignment:daily_assignments(kind)")
       .in("student_id", ids),
     fetchPracticeSubmissionsForStudents(ids).catch(() => []),
     fetchDiamondsUsedByStudentMap(ids).catch(() => new Map())
   ]);
   if (subsResult.error) throw new Error(subsResult.error.message);
-  const allSubs = [...(Array.isArray(subsResult.data) ? subsResult.data : []), ...(Array.isArray(practiceRows) ? practiceRows : [])];
+  const dailyRows = (subsResult.data || []).filter(row => row.assignment?.kind !== "retest");
+  const completedByStudent = await getCompletedDates(ids, dailyRows);
+  const allSubs = [...dailyRows, ...practiceRows];
   const byStudent = new Map();
   for (const sid of ids) byStudent.set(sid, []);
   for (const row of allSubs) {
@@ -464,7 +485,7 @@ async function buildClassAnalytics(className, targetStudentId, fallbackSubmissio
 
   const aspectRows = members.map((m) => {
     const sid = String(m.user_id || "");
-    const metricsData = computeAspectMetrics(byStudent.get(sid) || [], Number(diamondsMap.get(sid) || 0));
+    const metricsData = computeAspectMetrics(byStudent.get(sid) || [], Number(diamondsMap.get(sid) || 0), completedByStudent.get(sid));
     return {
       student_id: sid,
       student_name: String(m.full_name || "").trim() || "Student",
@@ -526,18 +547,6 @@ function parseBearerToken(req) {
   return authHeader.slice(7).trim();
 }
 
-async function withTimeout(promise, ms, label = "operation") {
-  let timer = null;
-  const timeoutPromise = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`${label} timed out`)), Number(ms) || 8000);
-  });
-  try {
-    return await Promise.race([promise, timeoutPromise]);
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
-}
-
 function pickRandomIds(ids, count) {
   const pool = [...ids];
   for (let i = pool.length - 1; i > 0; i -= 1) {
@@ -545,11 +554,6 @@ function pickRandomIds(ids, count) {
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   return pool.slice(0, count);
-}
-
-function pickRandomOne(ids) {
-  if (!Array.isArray(ids) || !ids.length) return null;
-  return ids[Math.floor(Math.random() * ids.length)];
 }
 
 function shuffleCopy(items) {
@@ -563,23 +567,6 @@ function shuffleCopy(items) {
 
 function comboKey(combo) {
   return `${String(combo.difficulty || "").trim()}|||${String(combo.topic || "").trim()}|||${String(combo.sub_type || "").trim()}`;
-}
-
-function problemComboKey(problem) {
-  const difficulty = String(problem?.difficulty || "").trim();
-  const topic = String(problem?.topic || "").trim();
-  const subType = String(problem?.sub_type || "").trim();
-  if (!difficulty || !topic || !subType) return "";
-  return comboKey({ difficulty, topic, sub_type: subType });
-}
-
-function parseComboKey(key) {
-  const [difficulty, topic, sub_type] = String(key || "").split("|||");
-  return {
-    difficulty: String(difficulty || "").trim(),
-    topic: String(topic || "").trim(),
-    sub_type: String(sub_type || "").trim()
-  };
 }
 
 function compareComboOrder(a, b) {
@@ -664,40 +651,8 @@ async function updateStudentAuthClassMetadata(studentIds, className) {
 }
 
 async function ensureStudentTokenWallet(studentId) {
-  const { data: existing, error: existingError } = await supabase
-    .from("student_token_wallets")
-    .select("student_id,balance")
-    .eq("student_id", studentId)
-    .maybeSingle();
-  if (existingError) throw new Error(existingError.message);
-  if (existing) return existing;
-
-  const { data: created, error: createError } = await supabase
-    .from("student_token_wallets")
-    .insert({
-      student_id: studentId,
-      balance: STARTER_TOKENS
-    })
-    .select("student_id,balance")
-    .single();
-  if (createError) throw new Error(createError.message);
-
-  if (STARTER_TOKENS !== 0) {
-    await supabase.from("student_token_ledger").insert({
-      student_id: studentId,
-      delta_tokens: STARTER_TOKENS,
-      reason: "starter_bonus",
-      metadata: {}
-    });
-  }
-  return created;
-}
-
-function previousDateString(dateString) {
-  const d = new Date(`${String(dateString || "").trim()}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return "";
-  d.setUTCDate(d.getUTCDate() - 1);
-  return d.toISOString().slice(0, 10);
+  const balance = await grantStudentTokens(studentId, 0, "balance");
+  return { student_id: studentId, balance };
 }
 
 function computeTrailingCorrectStreak(submissions) {
@@ -720,66 +675,15 @@ function computeQuestionTokenReward({ isCorrect, timeSpentSeconds, nextCorrectSt
   return Math.max(0, Math.round(reward));
 }
 
-async function computeDailyCompletionBonus(studentId, assignmentDate) {
-  const day = String(assignmentDate || "").trim();
-  if (!day) return 0;
-  const { data, error } = await supabase
-    .from("student_submissions")
-    .select("assignment_date")
-    .eq("student_id", studentId)
-    .lte("assignment_date", day);
-  if (error) throw new Error(error.message);
-
-  const countByDate = new Map();
-  for (const row of data || []) {
-    const d = String(row?.assignment_date || "").trim();
-    if (!d) continue;
-    countByDate.set(d, Number(countByDate.get(d) || 0) + 1);
-  }
-
-  let streakDays = 0;
-  let cursor = day;
-  while (cursor && Number(countByDate.get(cursor) || 0) >= 5) {
-    streakDays += 1;
-    cursor = previousDateString(cursor);
-  }
-
-  if (streakDays === 3) return 5;
-  if (streakDays === 7) return 10;
-  if (streakDays === 14) return 20;
-  if (streakDays === 21) return 40;
-  return 0;
-}
-
 async function grantStudentTokens(studentId, delta, reason, metadata = {}) {
-  const amount = Math.round(Number(delta || 0));
-  if (!Number.isFinite(amount) || amount === 0) {
-    const wallet0 = await ensureStudentTokenWallet(studentId);
-    return Number(wallet0.balance || 0);
-  }
-
-  const wallet = await ensureStudentTokenWallet(studentId);
-  const current = Number(wallet.balance || 0);
-  const next = current + amount;
-  if (next < 0) {
-    throw new Error("Insufficient tokens.");
-  }
-
-  const { error: updateError } = await supabase
-    .from("student_token_wallets")
-    .update({ balance: next })
-    .eq("student_id", studentId);
-  if (updateError) throw new Error(updateError.message);
-
-  const { error: ledgerError } = await supabase.from("student_token_ledger").insert({
-    student_id: studentId,
-    delta_tokens: amount,
-    reason: String(reason || "adjustment").trim() || "adjustment",
-    metadata
+  const { data, error } = await supabase.rpc("adjust_student_tokens", {
+    p_student_id: studentId,
+    p_amount: Math.round(Number(delta || 0)),
+    p_reason: String(reason || "adjustment").trim() || "adjustment",
+    p_metadata: metadata
   });
-  if (ledgerError) throw new Error(ledgerError.message);
-
-  return next;
+  if (error) throw new Error(error.message);
+  return Number(data || 0);
 }
 
 async function fetchAvatarCatalogForStudent(studentId) {
@@ -1119,31 +1023,6 @@ async function ensureTeacherCanAccessGroup(profile, groupId) {
   return String(group.owner_teacher_id) === String(profile.user_id);
 }
 
-async function getAssignmentsForDate(studentId, dateString) {
-  const { data, error } = await supabase
-    .from("daily_assignments")
-    .select("id, slot, assignment_date, question_id, problems(*)")
-    .eq("student_id", studentId)
-    .eq("assignment_date", dateString)
-    .order("slot", { ascending: true });
-
-  if (error) throw new Error(error.message);
-  return Array.isArray(data) ? data : [];
-}
-
-async function isOfficialDailyAssignment(studentId, assignmentDate, assignment) {
-  const slot = Number(assignment?.slot || 0);
-  if (slot > 0) return slot <= 5;
-  const assignmentId = Number(assignment?.id || 0);
-  const questionId = Number(assignment?.question_id || 0);
-  const rows = await getAssignmentsForDate(studentId, assignmentDate);
-  const index = rows.findIndex((row) => {
-    if (assignmentId > 0 && Number(row.id || 0) === assignmentId) return true;
-    return questionId > 0 && Number(row.question_id || 0) === questionId;
-  });
-  return index >= 0 && index < 5;
-}
-
 async function fetchProblemRowsPaged({ grade = "", columns = "id,difficulty,topic,sub_type,grade" } = {}) {
   const targetGrade = String(grade || "").trim();
   const pageSize = 1000;
@@ -1169,8 +1048,9 @@ async function fetchProblemRowsPaged({ grade = "", columns = "id,difficulty,topi
 async function fetchProblemPoolForStudentGrade(studentGrade) {
   const targetGrade = String(studentGrade || "").trim();
   const targetGradeNumber = gradeNumberFromValue(targetGrade);
+  const columns = "id,difficulty,topic,sub_type,grade,answer_text";
   if (targetGradeNumber > 0) {
-    const rows = await fetchProblemRowsPaged();
+    const rows = await fetchProblemRowsPaged({ columns });
     const gradeScopedRows = rows.filter((row) => {
       const questionGradeNumber = gradeNumberFromValue(row.grade);
       return questionGradeNumber > 0 && questionGradeNumber <= targetGradeNumber;
@@ -1178,9 +1058,9 @@ async function fetchProblemPoolForStudentGrade(studentGrade) {
     if (gradeScopedRows.length) return gradeScopedRows;
   }
 
-  const rows = await fetchProblemRowsPaged({ grade: targetGrade });
+  const rows = await fetchProblemRowsPaged({ grade: targetGrade, columns });
   if (rows.length || !targetGrade) return rows;
-  return await fetchProblemRowsPaged();
+  return await fetchProblemRowsPaged({ columns });
 }
 
 function gradeNumberFromValue(value) {
@@ -1501,411 +1381,55 @@ async function upsertStudentLearningProgress(row) {
   if (error) throw new Error(error.message);
 }
 
-async function createLearningAlert(studentId, combo, message) {
-  const { error } = await supabase.from("learning_alerts").insert({
-    student_id: studentId,
-    difficulty: combo.difficulty,
-    topic: combo.topic,
-    sub_type: combo.sub_type,
-    message
-  });
-  if (error) throw new Error(error.message);
-}
-
-async function countOfficialWrongSubmissionsForCombo(studentId, combo) {
-  const { data: submissions, error: submissionError } = await supabase
-    .from("student_submissions")
-    .select("id,assignment_date,question_id,is_correct,problems(difficulty,topic,sub_type)")
-    .eq("student_id", studentId)
-    .eq("is_correct", false);
-  if (submissionError) throw new Error(submissionError.message);
-
-  const rows = (submissions || []).filter((row) => {
-    const problem = row.problems || {};
-    return (
-      String(problem.difficulty || "") === String(combo.difficulty || "") &&
-      String(problem.topic || "") === String(combo.topic || "") &&
-      String(problem.sub_type || "") === String(combo.sub_type || "")
-    );
-  });
-  if (!rows.length) return 0;
-
-  const dates = [...new Set(rows.map((row) => String(row.assignment_date || "").trim()).filter(Boolean))];
-  const questionIds = [...new Set(rows.map((row) => Number(row.question_id || 0)).filter((id) => Number.isInteger(id) && id > 0))];
-  if (!dates.length || !questionIds.length) return 0;
-
-  const { data: assignments, error: assignmentError } = await supabase
-    .from("daily_assignments")
-    .select("assignment_date,question_id,slot")
-    .eq("student_id", studentId)
-    .in("assignment_date", dates)
-    .in("question_id", questionIds);
-  if (assignmentError) throw new Error(assignmentError.message);
-
-  const officialKeys = new Set(
-    (assignments || [])
-      .filter((row) => Number(row.slot || 0) > 0 && Number(row.slot || 0) <= 5)
-      .map((row) => `${String(row.assignment_date || "")}|||${Number(row.question_id || 0)}`)
-  );
-  return rows.filter((row) => officialKeys.has(`${String(row.assignment_date || "")}|||${Number(row.question_id || 0)}`)).length;
-}
-
-function isDateDue(dueDate, onDate) {
-  const due = String(dueDate || "").trim();
-  const today = String(onDate || "").trim();
-  if (!due || !today) return false;
-  return due <= today;
-}
-
 function reviewIntervalByStage(stage) {
-  const n = Number(stage);
-  return REVIEW_INTERVAL_DAYS[n] || 1;
+  return REVIEW_INTERVAL_DAYS[Number(stage)] || 1;
 }
 
-function getUnlockedDifficulty(comboList, progressByKey) {
-  for (const diff of DIFF) {
-    const progressRows = [...progressByKey.values()].filter((row) => String(row.difficulty || "").trim() === diff);
-    if (progressRows.length) {
-      const allProgressMastered = progressRows.every((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.MASTERED);
-      if (!allProgressMastered) return diff;
-      continue;
-    }
+async function loadAdaptiveContext(profile, date) {
+  const studentId = profile.user_id;
+  const [scopes, bank, progress, placement, history] = await Promise.all([
+    fetchScopeRulesForStudent(studentId),
+    fetchProblemPoolForStudentGrade(profile.grade),
+    fetchStudentLearningProgress(studentId),
+    hasCompletedInitialAssessment(studentId),
+    fetchAdaptiveHistory(studentId, date)
+  ]);
+  return dailyPolicy.createContext({
+    problems: applyScopeRulesToProblemRows(bank.filter(problem => String(problem.answer_text || "").trim()), scopes),
+    progress,
+    history,
+    startDifficulty: placement?.start_difficulty || "lv2",
+    date,
+    studentId,
+    scoped: scopes.length > 0
+  });
+}
 
-    const inLevel = comboList.filter((c) => c.difficulty === diff);
-    if (inLevel.length) return diff;
+async function fetchAdaptiveHistory(studentId, date) {
+  const rows = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabase.from("daily_assignments")
+      .select("question_id,assignment_date,deferred,problems(difficulty,topic,sub_type)")
+      .eq("student_id", studentId).eq("deferred", false).lt("assignment_date", date)
+      .order("id").range(offset, offset + 999);
+    if (error) throw new Error(error.message);
+    rows.push(...data);
+    if (data.length < 1000) return rows;
   }
-  return DIFF[DIFF.length - 1];
 }
 
-function getUnknownProgressionDifficulty(comboList, progressByKey) {
-  for (const diff of DIFF) {
-    const inLevel = comboList.filter((c) => c.difficulty === diff);
-    if (!inLevel.length) continue;
-    const hasUnknown = inLevel.some((combo) => {
-      const row = progressByKey.get(comboKey(combo));
-      if (!row) return true;
-      return normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN;
-    });
-    if (hasUnknown) return diff;
-  }
-  return "";
-}
-
-async function markVariantDone(studentId, combo, progressByKey, questionId) {
-  const key = comboKey(combo);
-  const existing = progressByKey.get(key) || makeDefaultProgressRow(studentId, combo);
-  const done = Array.isArray(existing.done_variants) ? existing.done_variants.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0) : [];
-  if (!done.includes(Number(questionId))) done.push(Number(questionId));
-  const next = { ...existing, ...combo, student_id: studentId, done_variants: done };
-  progressByKey.set(key, next);
-  await upsertStudentLearningProgress(next);
-}
-
-function pickQuestionForCombo(poolByCombo, combo, usedQuestionIds, doneVariants = []) {
-  const ids = (poolByCombo.get(comboKey(combo)) || []).filter((x) => Number.isInteger(Number(x)));
-  if (!ids.length) return null;
-  const blocked = new Set([...(usedQuestionIds || [])].map((x) => Number(x)));
-  const done = new Set((doneVariants || []).map((x) => Number(x)).filter((x) => Number.isInteger(x) && x > 0));
-  const fresh = ids.filter((id) => !blocked.has(Number(id)) && !done.has(Number(id)));
-  const unusedToday = ids.filter((id) => !blocked.has(Number(id)));
-  if (!unusedToday.length) return null;
-  return Number(pickRandomOne(fresh.length ? fresh : unusedToday));
-}
-
-function daysBetweenDateStrings(a, b) {
-  const da = new Date(`${String(a)}T00:00:00Z`);
-  const db = new Date(`${String(b)}T00:00:00Z`);
-  if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return 0;
-  return Math.floor((db.getTime() - da.getTime()) / 86400000);
-}
-
-async function buildPriorityQuestionQueue(studentProfile, dateString, neededCount, usedQuestionIds, options = {}) {
-  const studentId = studentProfile.user_id;
-  const scopeRules = await fetchScopeRulesForStudent(studentId);
-  const allProblemRows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
-  const problemRows = applyScopeRulesToProblemRows(allProblemRows, scopeRules);
-  if (!problemRows.length) {
-    throw new Error("No questions found in question bank.");
-  }
-
-  const { byCombo: poolByCombo, comboList } = buildProblemPoolIndex(problemRows);
-  const progressByKey = await fetchStudentLearningProgress(studentId);
-  const placement = await hasCompletedInitialAssessment(studentId).catch(() => null);
-  const startDifficulty = String(placement?.start_difficulty || "lv2").trim();
-  const startDifficultyIndex = DIFF.indexOf(startDifficulty);
-  const normalizedStartIndex = startDifficultyIndex >= 0 ? startDifficultyIndex : 0;
-  for (const combo of comboList) {
-    const key = comboKey(combo);
-    if (progressByKey.has(key)) continue;
-    const diffIndex = DIFF.indexOf(String(combo.difficulty || "").trim());
-    const missingStatus =
-      diffIndex >= 0 && diffIndex < normalizedStartIndex
-        ? PROGRESS_STATUS.BACKFILL
-        : PROGRESS_STATUS.UNKNOWN;
-    progressByKey.set(key, makeDefaultProgressRow(studentId, combo, missingStatus));
-  }
-  const comboCountByKey = new Map();
-  const maxComboPerDate = Math.max(1, Number(options.maxComboPerDate || 1));
-  for (const key of options.existingComboKeys || []) {
-    const cleanKey = String(key || "").trim();
-    if (!cleanKey) continue;
-    comboCountByKey.set(cleanKey, (comboCountByKey.get(cleanKey) || 0) + 1);
-  }
-  const queue = [];
-  let slotsLeft = Math.max(Number(neededCount || 0), 0);
-
-  const getComboCount = (combo) => comboCountByKey.get(comboKey(combo)) || 0;
-  const bumpComboCount = (combo) => {
-    const key = comboKey(combo);
-    comboCountByKey.set(key, (comboCountByKey.get(key) || 0) + 1);
+async function loadAdaptiveProgress(profile, problem, date) {
+  const combo = {
+    difficulty: String(problem.difficulty || "").trim(),
+    topic: String(problem.topic || "").trim(),
+    sub_type: String(problem.sub_type || "").trim()
   };
-
-  const pushByComboIfPossible = async (combo, priorityTag, options = {}) => {
-    if (slotsLeft <= 0) return false;
-    if (getComboCount(combo) >= maxComboPerDate) return false;
-    const row = progressByKey.get(comboKey(combo));
-    if (row && normalizeProgressStatus(row) === PROGRESS_STATUS.FROZEN) return false;
-    let questionId = Number(options.question_id || 0);
-    const comboIds = (poolByCombo.get(comboKey(combo)) || []).map((id) => Number(id));
-    if (Number.isInteger(questionId) && questionId > 0 && !comboIds.includes(questionId)) questionId = 0;
-    if (!Number.isInteger(questionId) || questionId <= 0 || usedQuestionIds.has(questionId)) {
-      const doneVariants = row?.done_variants || [];
-      questionId = pickQuestionForCombo(poolByCombo, combo, usedQuestionIds, doneVariants);
-    }
-    if (!Number.isInteger(questionId) || questionId <= 0) return false;
-    usedQuestionIds.add(questionId);
-    bumpComboCount(combo);
-    queue.push({ question_id: questionId, combo, priority: priorityTag });
-    await markVariantDone(studentId, combo, progressByKey, questionId);
-    slotsLeft -= 1;
-    return true;
-  };
-
-  const rowToCombo = (row) => ({ difficulty: row.difficulty, topic: row.topic, sub_type: row.sub_type });
-  const comboInPool = (combo) => (poolByCombo.get(comboKey(combo)) || []).length > 0;
-
-  // Priority 1: urgent careless retests, capped to 2 in one generation pass.
-  const urgentRows = [...progressByKey.values()]
-    .filter((row) => normalizeProgressStatus(row) !== PROGRESS_STATUS.FROZEN)
-    .filter((row) => row.pending_careless_retry === true)
-    .filter((row) => comboInPool(rowToCombo(row)))
-    .sort((a, b) => String(a.careless_retry_date || "").localeCompare(String(b.careless_retry_date || "")));
-  let urgentAdded = 0;
-  for (const row of urgentRows) {
-    if (slotsLeft <= 0 || urgentAdded >= 2) break;
-    const ok = await pushByComboIfPossible(rowToCombo(row), "urgent_retest", { question_id: Number(row.pending_retest_question_id || 0) });
-    if (ok) urgentAdded += 1;
-  }
-
-  // Priority 2: due Ebbinghaus reviews, T1/T2 first, then most overdue.
-  const reviewRows = [...progressByKey.values()]
-    .filter((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.KNOWN)
-    .filter((row) => isDateDue(row.next_review_date, dateString))
-    .filter((row) => comboInPool(rowToCombo(row)))
-    .sort((a, b) => {
-      const earlyA = Number(a.review_stage || 0) <= 2 ? 0 : 1;
-      const earlyB = Number(b.review_stage || 0) <= 2 ? 0 : 1;
-      if (earlyA !== earlyB) return earlyA - earlyB;
-      const overdueA = daysBetweenDateStrings(a.next_review_date, dateString);
-      const overdueB = daysBetweenDateStrings(b.next_review_date, dateString);
-      if (overdueA !== overdueB) return overdueB - overdueA;
-      return Number(a.review_stage || 0) - Number(b.review_stage || 0);
-    });
-  for (const row of reviewRows) {
-    if (slotsLeft <= 0) break;
-    await pushByComboIfPossible(rowToCombo(row), "review");
-  }
-
-  const pushNextCrossDayUnknown = async () => {
-    const progressionDifficulty = getUnknownProgressionDifficulty(comboList, progressByKey);
-    const unlockedCombos = progressionDifficulty ? comboList.filter((c) => c.difficulty === progressionDifficulty) : [];
-    if (!unlockedCombos.length) return false;
-    const crossDayDue = unlockedCombos
-      .filter((combo) => {
-        const row = progressByKey.get(comboKey(combo));
-        return (
-          row &&
-          normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN &&
-          Number(row.consecutive_correct_count || 0) === 1 &&
-          String(row.last_correct_date || "") &&
-          String(row.last_correct_date || "") < dateString
-        );
-      })
-      .sort(compareComboOrder)
-      .filter((combo) => getComboCount(combo) < maxComboPerDate);
-    for (const combo of crossDayDue) {
-      if (await pushByComboIfPossible(combo, "unknown_cross_day")) return true;
-    }
-    return false;
-  };
-
-  const pushNextFreshUnknown = async () => {
-    const progressionDifficulty = getUnknownProgressionDifficulty(comboList, progressByKey);
-    const unlockedCombos = progressionDifficulty ? comboList.filter((c) => c.difficulty === progressionDifficulty) : [];
-    if (!unlockedCombos.length) return false;
-    const freshUnknown = unlockedCombos.filter((combo) => {
-      const row = progressByKey.get(comboKey(combo));
-      if (!row) return true;
-      return normalizeProgressStatus(row) === PROGRESS_STATUS.UNKNOWN && Number(row.consecutive_correct_count || 0) === 0;
-    });
-    const candidates = shuffleCopy(freshUnknown).filter((combo) => getComboCount(combo) < maxComboPerDate);
-    for (const combo of candidates) {
-      if (await pushByComboIfPossible(combo, "unknown_progression")) return true;
-    }
-    return false;
-  };
-
-  const pushNextBackfill = async () => {
-    const backfillRows = [...progressByKey.values()]
-      .filter((row) => normalizeProgressStatus(row) === PROGRESS_STATUS.BACKFILL)
-      .filter((row) => comboInPool(rowToCombo(row)))
-      .filter((row) => getComboCount(rowToCombo(row)) < maxComboPerDate)
-      .sort(compareComboOrder);
-    for (const row of backfillRows) {
-      if (await pushByComboIfPossible(rowToCombo(row), "backfill")) return true;
-    }
-    return false;
-  };
-
-  // Priority 3: cross-day UNKNOWN confirmations. These can promote a sub-topic
-  // to KNOWN, so they stay ahead of both fresh higher-level work and backfill.
-  while (slotsLeft > 0) {
-    if (!(await pushNextCrossDayUnknown())) break;
-  }
-
-  // Priority 4: mix fresh higher-level UNKNOWN progression with BACKFILL.
-  // Odd slots favor progression, e.g. 3 slots => 2 fresh + 1 backfill.
-  const mixedSlots = slotsLeft;
-  let freshUnknownQuota = mixedSlots - Math.floor(mixedSlots / 2);
-  let backfillQuota = Math.floor(mixedSlots / 2);
-  while (slotsLeft > 0 && (freshUnknownQuota > 0 || backfillQuota > 0)) {
-    let added = false;
-    if (freshUnknownQuota > 0) {
-      added = await pushNextFreshUnknown();
-      freshUnknownQuota -= 1;
-      if (!added && backfillQuota <= 0) backfillQuota = slotsLeft;
-    }
-    if (slotsLeft <= 0) break;
-    if (backfillQuota > 0) {
-      const backfillAdded = await pushNextBackfill();
-      backfillQuota -= 1;
-      added = added || backfillAdded;
-      if (!backfillAdded && freshUnknownQuota <= 0) freshUnknownQuota = slotsLeft;
-    }
-    if (!added) break;
-  }
-
-  // Final safety fill: keep the daily page usable when scope is valid but no
-  // adaptive bucket is currently due. It still respects the lowest unfinished
-  // level so higher-level questions do not jump ahead of unfinished lv2 work.
-  while (slotsLeft > 0) {
-    const unlockedDifficulty = getUnlockedDifficulty(comboList, progressByKey);
-    const primaryFallbackCombos = comboList.filter((combo) => combo.difficulty === unlockedDifficulty);
-    if (!primaryFallbackCombos.length) break;
-    const fallbackCombos = primaryFallbackCombos.filter((combo) => {
-      const row = progressByKey.get(comboKey(combo));
-      return !row || normalizeProgressStatus(row) !== PROGRESS_STATUS.FROZEN;
-    });
-    const nextCombo = pickRandomOne(fallbackCombos);
-    if (!nextCombo) break;
-    const ok = await pushByComboIfPossible(nextCombo, "scope_safe_fill");
-    if (!ok) {
-      const remaining = fallbackCombos.filter((combo) => getComboCount(combo) < maxComboPerDate);
-      let added = false;
-      for (const combo of remaining) {
-        if (await pushByComboIfPossible(combo, "scope_safe_fill")) {
-          added = true;
-          break;
-        }
-      }
-      if (!added) break;
-    }
-  }
-
-  return queue.slice(0, neededCount);
-}
-
-async function appendAssignmentsForStudentDate(studentProfile, dateString, count) {
-  const needed = Number(count);
-  if (!Number.isInteger(needed) || needed <= 0) return await getAssignmentsForDate(studentProfile.user_id, dateString);
-
-  const studentId = studentProfile.user_id;
-  let assignments = await getAssignmentsForDate(studentId, dateString);
-  const usedQuestionIds = new Set(assignments.map((a) => Number(a.question_id)).filter((id) => Number.isInteger(id)));
-  const existingComboKeys = assignments.map((a) => problemComboKey(a.problems)).filter(Boolean);
-
-  const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds, { existingComboKeys });
-  if (!queue.length) {
-    throw new Error("No assignable questions found in the student's lowest unfinished level under current class/group scope.");
-  }
-
-  const startSlot = assignments.reduce((acc, row) => Math.max(acc, Number(row.slot || 0)), 0);
-  const inserts = queue.map((item, index) => ({
-    student_id: studentId,
-    assignment_date: dateString,
-    question_id: item.question_id,
-    slot: startSlot + index + 1
-  }));
-  const { error: insertError } = await supabase.from("daily_assignments").insert(inserts);
-  if (insertError) throw new Error(insertError.message);
-
-  return await getAssignmentsForDate(studentId, dateString);
-}
-
-async function appendAssignmentsForStudentDateWithBlocked(studentProfile, dateString, count, blockedQuestionIds = []) {
-  const needed = Number(count);
-  if (!Number.isInteger(needed) || needed <= 0) return await getAssignmentsForDate(studentProfile.user_id, dateString);
-
-  const studentId = studentProfile.user_id;
-  let assignments = await getAssignmentsForDate(studentId, dateString);
-  const usedQuestionIds = new Set(assignments.map((a) => Number(a.question_id)).filter((id) => Number.isInteger(id)));
-  const existingComboKeys = assignments.map((a) => problemComboKey(a.problems)).filter(Boolean);
-  for (const qid of blockedQuestionIds || []) {
-    const n = Number(qid);
-    if (Number.isInteger(n) && n > 0) usedQuestionIds.add(n);
-  }
-
-  const queue = await buildPriorityQuestionQueue(studentProfile, dateString, needed, usedQuestionIds, { existingComboKeys });
-  if (!queue.length) {
-    throw new Error("No assignable questions found in the student's lowest unfinished level under current class/group scope.");
-  }
-
-  const startSlot = assignments.reduce((acc, row) => Math.max(acc, Number(row.slot || 0)), 0);
-  const inserts = queue.map((item, index) => ({
-    student_id: studentId,
-    assignment_date: dateString,
-    question_id: item.question_id,
-    slot: startSlot + index + 1
-  }));
-  const { error: insertError } = await supabase.from("daily_assignments").insert(inserts);
-  if (insertError) throw new Error(insertError.message);
-
-  return await getAssignmentsForDate(studentId, dateString);
-}
-
-async function ensureDailyAssignments(studentProfile, dateString) {
-  const assignments = await getAssignmentsForDate(studentProfile.user_id, dateString);
-  if (assignments.length >= 5) return assignments;
-  return await appendAssignmentsForStudentDate(studentProfile, dateString, 5 - assignments.length);
-}
-
-async function redistributePendingAssignmentsForDate(studentProfile, dateString) {
-  return await ensureDailyAssignments(studentProfile, dateString);
-}
-
-async function refreshTodayAssignmentsByLatestRules(studentProfile, dateString, count = 5) {
-  const studentId = studentProfile.user_id;
-  const targetCount = Math.max(1, Math.min(20, Number(count) || 5));
-
-  const { data: subs, error: subErr } = await supabase
-    .from("student_submissions")
-    .select("question_id")
-    .eq("student_id", studentId)
-    .eq("assignment_date", dateString);
-  if (subErr) throw new Error(subErr.message);
-  const blockedQuestionIds = (subs || []).map((row) => Number(row.question_id)).filter((id) => Number.isInteger(id) && id > 0);
-
-  return await appendAssignmentsForStudentDateWithBlocked(studentProfile, dateString, targetCount, blockedQuestionIds);
+  const { data, error } = await supabase.from("student_learning_progress").select("*")
+    .eq("student_id", profile.user_id).eq("difficulty", combo.difficulty)
+    .eq("topic", combo.topic).eq("sub_type", combo.sub_type).maybeSingle();
+  if (error) throw new Error(error.message);
+  const placement = data ? null : await hasCompletedInitialAssessment(profile.user_id);
+  return dailyPolicy.normalizeProgress(data, combo, placement?.start_difficulty || "lv2", date);
 }
 
 async function hasCompletedInitialAssessment(studentId) {
@@ -2852,319 +2376,13 @@ async function generateSolutions(questions) {
   }
 }
 
-async function findProgressRow(studentId, combo) {
-  const { data, error } = await supabase
-    .from("student_learning_progress")
-    .select("*")
-    .eq("student_id", studentId)
-    .eq("difficulty", combo.difficulty)
-    .eq("topic", combo.topic)
-    .eq("sub_type", combo.sub_type)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (data) return data;
-  return makeDefaultProgressRow(studentId, combo);
-}
-
-async function hasOpenAlertForCombo(studentId, combo) {
-  const { data, error } = await supabase
-    .from("learning_alerts")
-    .select("id")
-    .eq("student_id", studentId)
-    .eq("difficulty", combo.difficulty)
-    .eq("topic", combo.topic)
-    .eq("sub_type", combo.sub_type)
-    .eq("is_resolved", false)
-    .limit(1);
-  if (error) throw new Error(error.message);
-  return Array.isArray(data) && data.length > 0;
-}
-
-async function appendCarelessRetryAssignment(studentProfile, assignmentDate, combo) {
-  const studentId = String(studentProfile.user_id || "").trim();
-  if (!studentId) return null;
-
-  const assignments = await getAssignmentsForDate(studentId, assignmentDate);
-  const usedQuestionIds = new Set(assignments.map((a) => Number(a.question_id)));
-  const scopeRules = await fetchScopeRulesForStudent(studentId);
-  const allRows = await fetchProblemPoolForStudentGrade(studentProfile.grade);
-  const problemRows = applyScopeRulesToProblemRows(allRows, scopeRules);
-  const { byCombo } = buildProblemPoolIndex(problemRows);
-  const progress = await findProgressRow(studentId, combo);
-  const questionId = pickQuestionForCombo(byCombo, combo, usedQuestionIds, progress.done_variants || []);
-  if (!Number.isInteger(questionId) || questionId <= 0) return null;
-  return questionId;
-}
-
-async function updateLearningProgressAfterSubmission(studentProfile, assignmentDate, problemRow, isCorrect, carelessError, timeSpentSeconds = 0) {
-  const combo = {
-    difficulty: String(problemRow?.difficulty || "").trim(),
-    topic: String(problemRow?.topic || "").trim(),
-    sub_type: String(problemRow?.sub_type || "").trim()
-  };
-  if (!combo.difficulty || !combo.topic || !combo.sub_type) return;
-
-  const studentId = studentProfile.user_id;
-  const progress = await findProgressRow(studentId, combo);
-  const next = { ...progress };
-  const questionId = Number(problemRow?.id || 0);
-  const status = normalizeProgressStatus(next);
-  const isPendingRetest =
-    next.pending_careless_retry === true &&
-    Number.isInteger(questionId) &&
-    questionId === Number(next.pending_retest_question_id || 0);
-
-  const freezeIfNeeded = async () => {
-    if (Number(next.wrong_count || 0) < 3) return;
-    const officialWrongCount = await countOfficialWrongSubmissionsForCombo(studentId, combo);
-    if (officialWrongCount < 3) {
-      next.wrong_count = officialWrongCount;
-      next.status = PROGRESS_STATUS.UNKNOWN;
-      next.is_paused = false;
-      return;
-    }
-    next.status = PROGRESS_STATUS.FROZEN;
-    next.is_paused = true;
-    next.pending_careless_retry = false;
-    next.pending_retest_question_id = null;
-    if (!(await hasOpenAlertForCombo(studentId, combo))) {
-      await createLearningAlert(
-        studentId,
-        combo,
-        `Student needs teacher support on ${combo.difficulty} / ${combo.topic} / ${combo.sub_type} (frozen after repeated errors).`
-      );
-    }
-  };
-
-  let feedback = {
-    progress_status: status,
-    careless_accepted: null,
-    careless_rejected_reason: null,
-    teacher_notified: false,
-    message: ""
-  };
-
-  if (isPendingRetest) {
-    next.pending_careless_retry = false;
-    next.pending_retest_question_id = null;
-    next.careless_retry_date = null;
-    if (isCorrect === true) {
-      next.status = PROGRESS_STATUS.KNOWN;
-      next.careless_streak = 0;
-    } else {
-      next.status = PROGRESS_STATUS.UNKNOWN;
-      next.mastery_achieved = false;
-      next.review_stage = 0;
-      next.next_review_date = null;
-      next.consecutive_correct_count = 0;
-      next.last_correct_date = null;
-      next.wrong_count = Number(next.wrong_count || 0) + 1;
-      await freezeIfNeeded();
-    }
-    feedback.progress_status = normalizeProgressStatus(next);
-    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
-    feedback.message =
-      isCorrect === true
-        ? "Retest passed. Your review schedule stays on track."
-        : feedback.teacher_notified
-          ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
-          : "The retest was not correct, so this sub-topic is now marked as learning again.";
-    await upsertStudentLearningProgress(next);
-    return feedback;
-  }
-
-  if (status === PROGRESS_STATUS.BACKFILL) {
-    if (isCorrect === true) {
-      next.backfill_correct_count = Number(next.backfill_correct_count || 0) + 1;
-      next.careless_streak = 0;
-      if (Number(next.backfill_correct_count || 0) >= 2) {
-        next.status = PROGRESS_STATUS.MASTERED;
-        next.mastery_achieved = true;
-        next.review_stage = 5;
-        next.next_review_date = null;
-      }
-    } else {
-      next.status = PROGRESS_STATUS.UNKNOWN;
-      next.mastery_achieved = false;
-      next.review_stage = 0;
-      next.next_review_date = null;
-      next.consecutive_correct_count = 0;
-      next.last_correct_date = null;
-      next.wrong_count = Number(next.wrong_count || 0) + 1;
-      next.backfill_correct_count = 0;
-      next.careless_streak = 0;
-      await freezeIfNeeded();
-    }
-    feedback.progress_status = normalizeProgressStatus(next);
-    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
-    feedback.message =
-      feedback.teacher_notified
-        ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
-        : feedback.progress_status === PROGRESS_STATUS.MASTERED
-          ? "Backfill passed. This sub-topic is now mastered."
-          : "This backfill question showed a gap, so this sub-topic is now marked as learning again.";
-    await upsertStudentLearningProgress(next);
-    return feedback;
-  }
-
-  if (status === PROGRESS_STATUS.KNOWN) {
-    if (isCorrect === true) {
-      const stage = Math.max(1, Number(next.review_stage || 1));
-      next.pending_careless_retry = false;
-      next.pending_retest_question_id = null;
-      next.careless_retry_date = null;
-      next.careless_streak = 0;
-      next.wrong_count = 0;
-      if (stage >= 5) {
-        next.status = PROGRESS_STATUS.MASTERED;
-        next.mastery_achieved = true;
-        next.review_stage = 5;
-        next.next_review_date = null;
-      } else {
-        const nextStage = stage + 1;
-        next.status = PROGRESS_STATUS.KNOWN;
-        next.mastery_achieved = true;
-        next.review_stage = nextStage;
-        next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(nextStage));
-      }
-    } else {
-      const carelessAllowed = carelessError === true && Number(timeSpentSeconds || 0) >= CARELESS_MIN_SECONDS && Number(next.careless_streak || 0) < 2;
-      if (carelessAllowed) {
-        const retestQuestionId = await appendCarelessRetryAssignment(studentProfile, assignmentDate, combo);
-        next.pending_careless_retry = true;
-        next.pending_retest_question_id = retestQuestionId;
-        next.careless_retry_date = addDaysDateString(assignmentDate, 1);
-        next.careless_streak = Number(next.careless_streak || 0) + 1;
-        feedback.careless_accepted = true;
-        feedback.message = "Marked as careless. The system will give you one retest from this sub-topic soon. Passing it keeps your review schedule.";
-      } else {
-        feedback.careless_accepted = carelessError === true ? false : null;
-        if (carelessError === true) {
-          feedback.careless_rejected_reason =
-            Number(timeSpentSeconds || 0) < CARELESS_MIN_SECONDS
-              ? "too_fast"
-              : Number(next.careless_streak || 0) >= 2
-                ? "twice_wrong"
-                : "not_available";
-        }
-        next.status = PROGRESS_STATUS.UNKNOWN;
-        next.mastery_achieved = false;
-        next.review_stage = 0;
-        next.next_review_date = null;
-        next.consecutive_correct_count = 0;
-        next.last_correct_date = null;
-        next.wrong_count = Number(next.wrong_count || 0) + 1;
-        next.careless_streak = 0;
-        await freezeIfNeeded();
-        feedback.message =
-          feedback.careless_rejected_reason === "twice_wrong"
-            ? "The system cannot mark this as careless because this type has already been missed twice. This sub-topic is now marked as learning again."
-            : feedback.careless_rejected_reason === "too_fast"
-              ? "The system cannot mark this as careless because the answer was submitted too quickly. This sub-topic is now marked as learning again."
-              : "This sub-topic is now marked as learning again.";
-      }
-    }
-    feedback.progress_status = normalizeProgressStatus(next);
-    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
-    if (feedback.teacher_notified) {
-      feedback.message = "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again.";
-    }
-    await upsertStudentLearningProgress(next);
-    return feedback;
-  }
-
-  if (status === PROGRESS_STATUS.MASTERED) {
-    if (isCorrect === false) {
-      next.status = PROGRESS_STATUS.UNKNOWN;
-      next.mastery_achieved = false;
-      next.review_stage = 0;
-      next.next_review_date = null;
-      next.consecutive_correct_count = 0;
-      next.last_correct_date = null;
-      next.wrong_count = Number(next.wrong_count || 0) + 1;
-      await freezeIfNeeded();
-    }
-    await upsertStudentLearningProgress(next);
-    feedback.progress_status = normalizeProgressStatus(next);
-    feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
-    feedback.message = feedback.teacher_notified
-      ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
-      : isCorrect === false
-        ? "This sub-topic is now marked as learning again."
-        : "";
-    return feedback;
-  }
-
-  if (isCorrect === true) {
-    next.pending_careless_retry = false;
-    next.careless_retry_date = null;
-    next.correction_wrong_streak = 0;
-    next.correction_due_date = null;
-    next.is_paused = false;
-    const lastCorrectDate = String(next.last_correct_date || "");
-    const wasCrossDay = lastCorrectDate && lastCorrectDate < assignmentDate;
-    const previousCount = Number(next.consecutive_correct_count || 0);
-    next.consecutive_correct_count = wasCrossDay ? previousCount + 1 : Math.max(previousCount, 1);
-    next.last_correct_date = assignmentDate;
-    next.wrong_count = 0;
-    next.careless_streak = 0;
-    if (Number(next.consecutive_correct_count || 0) >= 2 && wasCrossDay) {
-      next.status = PROGRESS_STATUS.KNOWN;
-      next.mastery_achieved = true;
-      next.review_stage = 1;
-      next.next_review_date = addDaysDateString(assignmentDate, reviewIntervalByStage(1));
-      next.consolidation_due_date = null;
-    } else {
-      next.status = PROGRESS_STATUS.UNKNOWN;
-      next.mastery_achieved = false;
-      next.review_stage = 0;
-      next.next_review_date = null;
-    }
-  } else if (isCorrect === false) {
-    next.status = PROGRESS_STATUS.UNKNOWN;
-    next.ever_wrong = true;
-    next.pending_careless_retry = false;
-    next.careless_retry_date = null;
-    next.consecutive_correct_count = 0;
-    next.last_correct_date = null;
-    next.streak_correct = 0;
-    next.consolidation_due_date = null;
-    next.correction_due_date = null;
-    next.wrong_count = Number(next.wrong_count || 0) + 1;
-    next.careless_streak = 0;
-    await freezeIfNeeded();
-  }
-
-  await upsertStudentLearningProgress(next);
-  feedback.progress_status = normalizeProgressStatus(next);
-  feedback.teacher_notified = feedback.progress_status === PROGRESS_STATUS.FROZEN;
-  feedback.message = feedback.teacher_notified
-    ? "This sub-topic is now paused for teacher support. Your teacher has been notified. Please ask your teacher for help before this type appears again."
-    : isCorrect === true && feedback.progress_status === PROGRESS_STATUS.KNOWN
-      ? "Good work. You answered this sub-topic correctly across different days, so it is now in review."
-      : isCorrect === false
-        ? "This sub-topic is still marked as learning. Review it and try again next time."
-        : "";
-  return feedback;
-}
-
-async function getLearningProgressStatusForProblem(studentId, problemRow) {
-  const combo = {
-    difficulty: String(problemRow?.difficulty || "").trim(),
-    topic: String(problemRow?.topic || "").trim(),
-    sub_type: String(problemRow?.sub_type || "").trim()
-  };
-  if (!combo.difficulty || !combo.topic || !combo.sub_type) return PROGRESS_STATUS.UNKNOWN;
-  const progress = await findProgressRow(studentId, combo);
-  return normalizeProgressStatus(progress);
-}
-
 app.get("/api/meta", (_req, res) => {
   res.json({
     difficulties: DIFF,
     grades: GRADES,
     question_types: QUESTION_TYPES,
     ai_enabled: hasGeneratorConfig,
+    daily_policy_version: 2,
     ai_provider: hasAIConfig ? "gemini" : "fallback",
     school_domain: SCHOOL_EMAIL_DOMAIN || null
   });
@@ -3921,249 +3139,50 @@ app.post("/api/student/frames/select", ensureCloud, requireAuth, requireRole("st
   }
 });
 
-app.get("/api/student/daily", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
-  const date = String(req.query.date || "").trim() || getTodayDateString();
-  const applyLatest = String(req.query.apply_latest || "").trim() === "1";
-
-  try {
-    let assignments = [];
-    if (applyLatest) {
-      try {
-        assignments = await withTimeout(redistributePendingAssignmentsForDate(req.profile, date), 9000, "daily_scheduler");
-      } catch (_slowError) {
-        assignments = await getAssignmentsForDate(req.profile.user_id, date);
-        if (!assignments.length) {
-          assignments = await withTimeout(ensureDailyAssignments(req.profile, date), 5000, "daily_scheduler_fallback");
-        }
-      }
-    } else {
-      assignments = await withTimeout(ensureDailyAssignments(req.profile, date), 9000, "daily_scheduler_stable");
-    }
-    const questionIds = assignments.map((a) => Number(a.question_id)).filter((id) => Number.isInteger(id));
-
-    const { data: submissions, error: submissionsError } = await supabase
-      .from("student_submissions")
-      .select("id, question_id, answer_text, is_correct, submitted_at, time_spent_seconds")
-      .eq("student_id", req.profile.user_id)
-      .eq("assignment_date", date)
-      .in("question_id", questionIds);
-
-    if (submissionsError) return res.status(500).json({ error: submissionsError.message });
-
-    const submissionMap = new Map();
-    for (const row of submissions || []) {
-      submissionMap.set(Number(row.question_id), row);
-    }
-
-    const output = assignments.map((item) => {
-      const submission = submissionMap.get(Number(item.question_id));
-      return {
-        assignment_id: item.id,
-        slot: item.slot,
-        assignment_date: item.assignment_date,
-        question: item.problems,
-        submission: submission || null
-      };
-    });
-
-    return res.json({ date, assignments: output });
-  } catch (error) {
-    return res.status(500).json({ error: error.message || "Failed to build daily assignment." });
-  }
+const dailyExercise = createDailyExerciseService({
+  db: supabase,
+  today: getTodayDateString,
+  loadContext: loadAdaptiveContext,
+  loadProgress: loadAdaptiveProgress,
+  score: compareAnswer,
+  seconds: normalizeTimeSpentSeconds,
+  questionReward: computeQuestionTokenReward,
+  trailingCorrect: computeTrailingCorrectStreak
 });
 
-app.post("/api/student/daily/extend", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
-  const date = String(req.body.date || "").trim() || getTodayDateString();
-  const count = Number(req.body.count || 5);
-
-  if (!Number.isInteger(count) || count <= 0 || count > 20) {
-    return res.status(400).json({ error: "count must be an integer between 1 and 20." });
-  }
-
-  try {
-    const assignments = await appendAssignmentsForStudentDate(req.profile, date, count);
-    return res.json({ date, total_assignments: assignments.length });
-  } catch (error) {
-    const msg = String(error?.message || "");
-    if (msg.includes("daily_assignments_slot_check")) {
-      return res.status(500).json({
-        error:
-          "Database still limits daily slots to 1-5. Please run the updated SQL migration to change daily_assignments slot check to slot > 0."
-      });
+function dailyRoute(handler) {
+  return async (req, res) => {
+    try {
+      return res.json(await handler(req));
+    } catch (error) {
+      return res.status(error.status || 500).json({ error: error.message || "Daily Mission could not be loaded." });
     }
-    return res.status(500).json({ error: error.message || "Failed to append assignments." });
-  }
-});
-
-app.post("/api/student/daily/refresh-latest", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
-  return res.status(410).json({ error: "The 5 more questions flow has been replaced by Practice mode." });
-});
-
-app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
-  const questionId = Number(req.body.question_id);
-  const assignmentDate = String(req.body.assignment_date || "").trim() || getTodayDateString();
-  const answerText = String(req.body.answer_text || "").trim();
-  const timeSpentSeconds = normalizeTimeSpentSeconds(req.body.time_spent_seconds);
-  const carelessError = req.body.careless_error === true;
-  const deferWrongFeedback = req.body.defer_wrong_feedback === true;
-
-  if (!Number.isInteger(questionId) || questionId <= 0) {
-    return res.status(400).json({ error: "Valid question_id is required." });
-  }
-  if (!answerText) {
-    return res.status(400).json({ error: "answer_text is required." });
-  }
-
-  const { data: assignment, error: assignmentError } = await supabase
-    .from("daily_assignments")
-    .select("id,question_id,slot")
-    .eq("student_id", req.profile.user_id)
-    .eq("assignment_date", assignmentDate)
-    .eq("question_id", questionId)
-    .maybeSingle();
-
-  if (assignmentError) return res.status(500).json({ error: assignmentError.message });
-  if (!assignment) {
-    return res.status(403).json({ error: "This question is not assigned to you for the selected date." });
-  }
-  const affectsLearningProgress = await isOfficialDailyAssignment(req.profile.user_id, assignmentDate, assignment);
-
-  const { data: daySubmissions, error: existingError } = await supabase
-    .from("student_submissions")
-    .select("id,question_id,is_correct,submitted_at")
-    .eq("student_id", req.profile.user_id)
-    .eq("assignment_date", assignmentDate)
-    .order("submitted_at", { ascending: true })
-    .order("id", { ascending: true });
-  if (existingError) return res.status(500).json({ error: existingError.message });
-  const existingSubmission = (daySubmissions || []).find((row) => Number(row?.question_id) === questionId);
-  if (existingSubmission) {
-    return res.status(409).json({ error: "Answer already submitted. Re-attempt is not allowed." });
-  }
-  const preSubmitCount = Array.isArray(daySubmissions) ? daySubmissions.length : 0;
-  const prevCorrectStreak = computeTrailingCorrectStreak(daySubmissions || []);
-
-  const { data: problem, error: problemError } = await supabase
-    .from("problems")
-    .select("id,answer_text,difficulty,topic,sub_type")
-    .eq("id", questionId)
-    .maybeSingle();
-  if (problemError) return res.status(500).json({ error: problemError.message });
-
-  const isCorrect = compareAnswer(answerText, problem?.answer_text);
-  const payload = {
-    student_id: req.profile.user_id,
-    assignment_date: assignmentDate,
-    question_id: questionId,
-    answer_text: answerText,
-    is_correct: isCorrect,
-    time_spent_seconds: timeSpentSeconds
   };
+}
 
-  const { data, error } = await supabase
-    .from("student_submissions")
-    .insert(payload)
-    .select("assignment_date, question_id, answer_text, is_correct, submitted_at")
-    .single();
-  if (error) {
-    if (String(error.code || "") === "23505") {
-      return res.status(409).json({ error: "Answer already submitted. Re-attempt is not allowed." });
-    }
-    return res.status(500).json({ error: error.message });
-  }
+app.get("/api/student/daily", ensureCloud, requireAuth, requireRole("student"), dailyRoute(req =>
+  dailyExercise.getDaily(req.profile, String(req.query.date || "").trim())
+));
 
-  let progressFeedback = null;
-  const statusBeforeSubmit = affectsLearningProgress
-    ? await getLearningProgressStatusForProblem(req.profile.user_id, problem || {})
-    : PROGRESS_STATUS.UNKNOWN;
-  const needsKnownWrongFeedback = affectsLearningProgress && isCorrect === false && statusBeforeSubmit === PROGRESS_STATUS.KNOWN && deferWrongFeedback === true;
-  try {
-    if (affectsLearningProgress && !needsKnownWrongFeedback) {
-      progressFeedback = await updateLearningProgressAfterSubmission(req.profile, assignmentDate, problem || {}, isCorrect, carelessError, timeSpentSeconds);
-    }
-  } catch (progressError) {
-    return res.status(500).json({ error: progressError.message || "Submission saved, but learning progress update failed." });
-  }
-  let tokenReward = 0;
-  let tokenBalance = null;
-  try {
-    const nextCorrectStreak = isCorrect ? prevCorrectStreak + 1 : 0;
-    const questionReward = computeQuestionTokenReward({
-      isCorrect,
-      timeSpentSeconds,
-      nextCorrectStreak
-    });
-    const reachedFiveToday = preSubmitCount < 5 && preSubmitCount + 1 >= 5;
-    const completionBonus = reachedFiveToday
-      ? await computeDailyCompletionBonus(req.profile.user_id, assignmentDate)
-      : 0;
-    tokenReward = questionReward + completionBonus;
-    tokenBalance = await grantStudentTokens(req.profile.user_id, tokenReward, "question_submission", {
-      assignment_date: assignmentDate,
-      question_id: questionId,
-      is_correct: isCorrect === true,
-      reward_breakdown: {
-        question: questionReward,
-        completion_streak: completionBonus,
-        correct_streak_after_submit: nextCorrectStreak
-      }
-    });
-  } catch (_tokenError) {
-    tokenReward = 0;
-    tokenBalance = null;
-  }
+app.get("/api/student/schedule", ensureCloud, requireAuth, requireRole("student"), dailyRoute(req =>
+  dailyExercise.getSchedule(req.profile)
+));
 
-  return res.json({
-    ...data,
-    token_reward: tokenReward,
-    token_balance: tokenBalance,
-    progress_feedback: progressFeedback || null,
-    needs_wrong_feedback: needsKnownWrongFeedback,
-    progress_status_before_submit: statusBeforeSubmit
-  });
-});
+app.post("/api/student/daily/extend", ensureCloud, requireAuth, requireRole("student"), (_req, res) =>
+  res.status(410).json({ error: "Use Practice mode to answer extra questions." })
+);
 
-app.post("/api/student/submit/:questionId/wrong-feedback", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
-  const questionId = Number(req.params.questionId);
-  const assignmentDate = String(req.body.assignment_date || "").trim() || getTodayDateString();
-  const timeSpentSeconds = normalizeTimeSpentSeconds(req.body.time_spent_seconds);
-  const carelessError = req.body.careless_error === true;
-  if (!Number.isInteger(questionId) || questionId <= 0) return res.status(400).json({ error: "Valid questionId is required." });
+app.post("/api/student/daily/refresh-latest", ensureCloud, requireAuth, requireRole("student"), (_req, res) =>
+  res.status(410).json({ error: "Today's Daily Mission is already planned." })
+);
 
-  const { data: assignment, error: assignmentError } = await supabase
-    .from("daily_assignments")
-    .select("id,question_id,slot")
-    .eq("student_id", req.profile.user_id)
-    .eq("assignment_date", assignmentDate)
-    .eq("question_id", questionId)
-    .maybeSingle();
-  if (assignmentError) return res.status(500).json({ error: assignmentError.message });
-  if (!assignment) return res.status(403).json({ error: "This question is not assigned to you for the selected date." });
-  const affectsLearningProgress = await isOfficialDailyAssignment(req.profile.user_id, assignmentDate, assignment);
+app.post("/api/student/submit", ensureCloud, requireAuth, requireRole("student"), dailyRoute(req =>
+  dailyExercise.submit(req.profile, req.body || {})
+));
 
-  const { data: submission, error: submissionError } = await supabase
-    .from("student_submissions")
-    .select("id,is_correct")
-    .eq("student_id", req.profile.user_id)
-    .eq("assignment_date", assignmentDate)
-    .eq("question_id", questionId)
-    .maybeSingle();
-  if (submissionError) return res.status(500).json({ error: submissionError.message });
-  if (!submission) return res.status(404).json({ error: "Submission not found." });
-  if (submission.is_correct !== false) return res.status(400).json({ error: "Wrong feedback is only available for wrong answers." });
-  if (!affectsLearningProgress) return res.json({ progress_feedback: null });
-
-  const { data: problem, error: problemError } = await supabase.from("problems").select("*").eq("id", questionId).maybeSingle();
-  if (problemError) return res.status(500).json({ error: problemError.message });
-  if (!problem) return res.status(404).json({ error: "Question not found." });
-
-  try {
-    const progressFeedback = await updateLearningProgressAfterSubmission(req.profile, assignmentDate, problem || {}, false, carelessError, timeSpentSeconds);
-    return res.json({ progress_feedback: progressFeedback || null });
-  } catch (error) {
-    return res.status(500).json({ error: error.message || "Failed to update wrong-answer feedback." });
-  }
-});
+app.post("/api/student/submit/:questionId/wrong-feedback", ensureCloud, requireAuth, requireRole("student"), dailyRoute(req =>
+  dailyExercise.handleWrong(req.profile, req.params.questionId, req.body || {})
+));
 
 app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), async (req, res) => {
   let studentProfile = req.profile;
@@ -4173,13 +3192,19 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
     return res.status(500).json({ error: freshProfileError.message });
   }
 
-  const { data: submissions, error } = await supabase
-    .from("student_submissions")
-    .select("assignment_date,is_correct, time_spent_seconds, submitted_at")
-    .eq("student_id", req.profile.user_id);
+  const studentId = req.profile.user_id;
+  const todayKey = getTodayDateString();
+  const [{ data: submissions, error }, { data: assignments, error: assignmentError }] = await Promise.all([
+    supabase.from("student_submissions")
+      .select("student_id,question_id,assignment_date,is_correct,time_spent_seconds,submitted_at,assignment_id,assignment:daily_assignments(kind)")
+      .eq("student_id", studentId),
+    supabase.from("daily_assignments").select("question_id,kind,slot").eq("student_id", studentId)
+      .eq("assignment_date", todayKey).eq("deferred", false)
+  ]);
   if (error) return res.status(500).json({ error: error.message });
+  if (assignmentError) return res.status(500).json({ error: assignmentError.message });
 
-  const submissionRows = Array.isArray(submissions) ? submissions : [];
+  const submissionRows = (submissions || []).filter(row => row.assignment?.kind !== "retest");
   let practiceRows = [];
   try {
     practiceRows = await fetchPracticeSubmissionsForStudents(req.profile.user_id);
@@ -4188,11 +3213,17 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
   }
   const performanceRows = [...submissionRows, ...practiceRows];
   const stats = computeSubmissionStats(performanceRows);
-  const todayKey = getTodayDateString();
-  const todayRows = submissionRows.filter((row) => String(row.assignment_date || "") === todayKey);
+  const todayIds = new Set((assignments || []).filter(isMain).map(row => row.question_id));
+  const todayRows = submissionRows.filter(row => row.assignment_date === todayKey && todayIds.has(row.question_id));
   const submittedToday = todayRows.length;
   const correctToday = todayRows.filter((row) => row.is_correct === true).length;
-  const finishedToday = submittedToday >= 5;
+  let completedDates;
+  try {
+    completedDates = (await getCompletedDates([studentId], submissionRows)).get(studentId);
+  } catch (completionError) {
+    return res.status(500).json({ error: completionError.message });
+  }
+  const finishedToday = completedDates.has(todayKey);
   let tokenBalance = 0;
   try {
     const wallet = await ensureStudentTokenWallet(req.profile.user_id);
@@ -4213,7 +3244,7 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
     initialTestLevel = "";
   }
   try {
-    const classAnalytics = await buildClassAnalytics(studentProfile.class_name, studentProfile.user_id, performanceRows);
+    const classAnalytics = await buildClassAnalytics(studentProfile.class_name, studentProfile.user_id, performanceRows, completedDates);
     radar = {
       labels: classAnalytics.labels,
       student: classAnalytics.student,
@@ -4233,6 +3264,7 @@ app.get("/api/student/stats", ensureCloud, requireAuth, requireRole("student"), 
     class_name: studentProfile.class_name || null,
     token_balance: tokenBalance,
     today_date: todayKey,
+    required_today: todayIds.size,
     submitted_today: submittedToday,
     correct_today: correctToday,
     finished_today: finishedToday,
@@ -4254,14 +3286,15 @@ app.get("/api/student/review", ensureCloud, requireAuth, requireRole("student"),
   const { data, error } = await supabase
     .from("student_submissions")
     .select(
-      "id, assignment_date, question_id, answer_text, is_correct, submitted_at, time_spent_seconds, problems(question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex)"
+      "id, assignment_date, question_id, answer_text, is_correct, submitted_at, time_spent_seconds, feedback_state, assignment:daily_assignments(kind,reason,review_round), problems(question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex)"
     )
     .eq("student_id", req.profile.user_id)
     .order("submitted_at", { ascending: false });
 
   if (error) return res.status(500).json({ error: error.message });
 
-  let rows = (Array.isArray(data) ? data : []).map((row) => ({ ...row, source_type: "daily" }));
+  let rows = (data || []).filter(row => !["pending", "retest"].includes(row.feedback_state))
+    .map(row => ({ ...row, source_type: row.assignment?.kind === "retest" ? "retest" : "daily" }));
   const { data: assessmentRows, error: assessmentError } = await supabase
     .from("student_initial_assessment_answers")
     .select(
@@ -4339,14 +3372,15 @@ function progressRowsToStatusGroups(rows, options = {}) {
     }
   }
   const rowByKey = new Map();
-  for (const row of rows || []) {
+  for (const source of rows || []) {
+    const row = dailyPolicy.normalizeProgress(source, source, "lv2", getTodayDateString());
     const topic = String(row.topic || "").trim() || "Unknown";
     const subType = String(row.sub_type || "").trim() || "Unknown";
     rowByKey.set(comboKey({ difficulty: row.difficulty, topic, sub_type: subType }), {
       difficulty: row.difficulty,
       topic,
       sub_type: subType,
-      status: normalizeProgressStatus(row),
+      status: row.status,
       next_review_date: row.next_review_date || null,
       consecutive_correct_count: Number(row.consecutive_correct_count || 0),
       wrong_count: Number(row.wrong_count || 0),
@@ -4386,14 +3420,14 @@ async function backfillMissingProgressFromOfficialSubmissions(studentProfiles, o
   const dates = [...new Set(submissionRows.map((row) => String(row.assignment_date || "").trim()).filter(Boolean))];
   const { data: assignments, error: assignmentError } = await supabase
     .from("daily_assignments")
-    .select("student_id,assignment_date,question_id,slot")
+    .select("student_id,assignment_date,question_id,slot,kind,reason")
     .in("student_id", ids)
     .in("assignment_date", dates);
   if (assignmentError) throw new Error(assignmentError.message);
 
   const officialKeys = new Set(
     (assignments || [])
-      .filter((row) => Number(row.slot || 0) > 0 && Number(row.slot || 0) <= 5)
+      .filter(row => (row.kind === "legacy" || row.reason === "existing") && isMain(row))
       .map((row) => `${String(row.student_id || "")}|||${String(row.assignment_date || "")}|||${Number(row.question_id || 0)}`)
   );
   const officialSubmissions = submissionRows.filter((row) =>
@@ -4420,6 +3454,8 @@ async function backfillMissingProgressFromOfficialSubmissions(studentProfiles, o
       sub_type: String(problem.sub_type || "").trim()
     };
     if (!combo.difficulty || !combo.topic || !combo.sub_type) continue;
+    if (options.topic && combo.topic !== options.topic) continue;
+    if (options.sub_type && combo.sub_type !== options.sub_type) continue;
     const key = `${String(row.student_id || "")}|||${comboKey(combo)}`;
     if (existingKeys.has(key)) continue;
     if (!missingGroups.has(key)) missingGroups.set(key, { studentId: String(row.student_id || ""), combo, rows: [] });
@@ -4457,7 +3493,10 @@ async function backfillMissingProgressFromOfficialSubmissions(studentProfiles, o
 
       if (status === PROGRESS_STATUS.BACKFILL) {
         if (isCorrect) {
+          if (next.last_correct_date === assignmentDate || next.last_evidence_question_id === questionId) continue;
           next.backfill_correct_count = Number(next.backfill_correct_count || 0) + 1;
+          next.last_correct_date = assignmentDate;
+          next.last_evidence_question_id = questionId;
           next.careless_streak = 0;
           if (Number(next.backfill_correct_count || 0) >= 2) {
             next.status = PROGRESS_STATUS.MASTERED;
@@ -4554,12 +3593,6 @@ async function backfillMissingProgressFromOfficialSubmissions(studentProfiles, o
         next.wrong_count = Number(next.wrong_count || 0) + 1;
         next.careless_streak = 0;
       }
-      if (Number(next.wrong_count || 0) >= 3) {
-        next.status = PROGRESS_STATUS.FROZEN;
-        next.is_paused = true;
-        next.pending_careless_retry = false;
-        next.pending_retest_question_id = null;
-      }
     }
     return next;
   };
@@ -4569,14 +3602,11 @@ async function backfillMissingProgressFromOfficialSubmissions(studentProfiles, o
     const profile = profileById.get(group.studentId);
     if (!profile) continue;
     const rebuilt = await rebuildProgressRow(group.studentId, group.combo, group.rows);
-    await upsertStudentLearningProgress(rebuilt);
-    if (normalizeProgressStatus(rebuilt) === PROGRESS_STATUS.FROZEN && !(await hasOpenAlertForCombo(group.studentId, group.combo))) {
-      await createLearningAlert(
-        group.studentId,
-        group.combo,
-        `Student needs teacher support on ${group.combo.difficulty} / ${group.combo.topic} / ${group.combo.sub_type} (frozen after repeated errors).`
-      );
-    }
+    const { error } = await supabase.from("student_learning_progress").upsert(rebuilt, {
+      onConflict: "student_id,difficulty,topic,sub_type",
+      ignoreDuplicates: true
+    });
+    if (error) throw new Error(error.message);
     repaired += 1;
   }
   return repaired;
@@ -4590,7 +3620,7 @@ app.get("/api/student/progress", ensureCloud, requireAuth, requireRole("student"
   }
   const { data, error } = await supabase
     .from("student_learning_progress")
-    .select("difficulty,topic,sub_type,status,next_review_date,consecutive_correct_count,wrong_count,backfill_correct_count")
+    .select("difficulty,topic,sub_type,status,next_review_date,review_stage,is_paused,last_correct_date,last_evidence_question_id,consecutive_correct_count,wrong_count,backfill_correct_count,daily_policy_version")
     .eq("student_id", req.profile.user_id)
     .order("difficulty", { ascending: true })
     .order("topic", { ascending: true })
@@ -4666,7 +3696,7 @@ app.get("/api/teacher/alerts/:alertId/wrong-answers", ensureCloud, requireAuth, 
   const { data, error } = await supabase
     .from("student_submissions")
     .select(
-      "id,assignment_date,question_id,answer_text,is_correct,submitted_at,time_spent_seconds,problems(question_type,difficulty,topic,sub_type,latex_code,answer_text,solution_latex)"
+      "id,assignment_date,question_id,answer_text,is_correct,submitted_at,time_spent_seconds,assignment:daily_assignments(kind),problems(question_type,difficulty,topic,sub_type,latex_code,answer_text,solution_latex)"
     )
     .eq("student_id", alertRow.student_id)
     .eq("is_correct", false)
@@ -4676,11 +3706,14 @@ app.get("/api/teacher/alerts/:alertId/wrong-answers", ensureCloud, requireAuth, 
   const rows = (data || []).filter((row) => {
     const p = row.problems || {};
     return (
+      String(p.difficulty || "") === String(alertRow.difficulty || "") &&
       String(p.topic || "") === String(alertRow.topic || "") &&
       String(p.sub_type || "") === String(alertRow.sub_type || "")
     );
   });
-  return res.json({ alert: alertRow, records: rows });
+  return res.json({ alert: alertRow, records: rows.map(row => ({
+    ...row, source_type: row.assignment?.kind === "retest" ? "retest" : "daily"
+  })) });
 });
 
 app.get("/api/teacher/progress", ensureCloud, requireAuth, requireRole("teacher"), async (req, res) => {
@@ -4720,7 +3753,7 @@ app.get("/api/teacher/progress", ensureCloud, requireAuth, requireRole("teacher"
 
   let progressQuery = supabase
     .from("student_learning_progress")
-    .select("student_id,difficulty,topic,sub_type,status,next_review_date,consecutive_correct_count,wrong_count,backfill_correct_count")
+    .select("student_id,difficulty,topic,sub_type,status,next_review_date,review_stage,is_paused,last_correct_date,last_evidence_question_id,consecutive_correct_count,wrong_count,backfill_correct_count,daily_policy_version")
     .in("student_id", ids);
   if (topic) progressQuery = progressQuery.eq("topic", topic);
   if (subType) progressQuery = progressQuery.eq("sub_type", subType);
@@ -4763,15 +3796,6 @@ app.post("/api/teacher/alerts/:alertId/resolve", ensureCloud, requireAuth, requi
 
   const { error: updateAlertError } = await supabase.from("learning_alerts").update({ is_resolved: true }).eq("id", alertId);
   if (updateAlertError) return res.status(500).json({ error: updateAlertError.message });
-
-  const { error: unpauseError } = await supabase
-    .from("student_learning_progress")
-    .update({ status: PROGRESS_STATUS.UNKNOWN, is_paused: false, wrong_count: 0, correction_wrong_streak: 0, correction_due_date: null })
-    .eq("student_id", alertRow.student_id)
-    .eq("difficulty", alertRow.difficulty)
-    .eq("topic", alertRow.topic)
-    .eq("sub_type", alertRow.sub_type);
-  if (unpauseError) return res.status(500).json({ error: unpauseError.message });
 
   return res.json({ resolved: true });
 });
@@ -4817,21 +3841,28 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
 
   const { data: assignments, error: assignmentError } = await supabase
     .from("daily_assignments")
-    .select("student_id, question_id")
-    .eq("assignment_date", date);
+    .select("student_id,question_id,kind,slot")
+    .eq("assignment_date", date).eq("deferred", false).in("student_id", studentIds);
   if (assignmentError) return res.status(500).json({ error: assignmentError.message });
 
   const { data: submissions, error: submissionError } = await supabase
     .from("student_submissions")
     .select("student_id, question_id, is_correct")
-    .eq("assignment_date", date);
+    .eq("assignment_date", date).in("student_id", studentIds);
   if (submissionError) return res.status(500).json({ error: submissionError.message });
 
   const { data: allSubmissions, error: allSubmissionError } = await supabase
     .from("student_submissions")
-    .select("student_id, assignment_date, is_correct, time_spent_seconds")
+    .select("student_id,assignment_date,is_correct,time_spent_seconds,assignment_id,assignment:daily_assignments(kind)")
     .in("student_id", studentIds);
   if (allSubmissionError) return res.status(500).json({ error: allSubmissionError.message });
+  const dailySubmissions = (allSubmissions || []).filter(row => row.assignment?.kind !== "retest");
+  let completedByStudent;
+  try {
+    completedByStudent = await getCompletedDates(studentIds, dailySubmissions);
+  } catch (completionError) {
+    return res.status(500).json({ error: completionError.message });
+  }
 
   const { data: alerts, error: alertError } = await supabase
     .from("learning_alerts")
@@ -4853,24 +3884,25 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
   const correctTotalByStudent = new Map();
   const timeSumByStudent = new Map();
   const timeCountByStudent = new Map();
-  const perDateDoneCountByStudent = new Map();
+  const primaryAssignments = new Set();
   const alertCountByStudent = new Map();
   const initialLevelByStudent = new Map();
 
   for (const row of assignments || []) {
     const key = row.student_id;
-    if (!studentIdSet.has(String(key || ""))) continue;
+    if (!isMain(row)) continue;
+    primaryAssignments.add(`${key}|${row.question_id}`);
     assignedCountByStudent.set(key, (assignedCountByStudent.get(key) || 0) + 1);
   }
   for (const row of submissions || []) {
     const key = row.student_id;
-    if (!studentIdSet.has(String(key || ""))) continue;
+    if (!primaryAssignments.has(`${key}|${row.question_id}`)) continue;
     submittedCountByStudent.set(key, (submittedCountByStudent.get(key) || 0) + 1);
     if (row.is_correct === true) {
       correctCountByStudent.set(key, (correctCountByStudent.get(key) || 0) + 1);
     }
   }
-  for (const row of allSubmissions || []) {
+  for (const row of dailySubmissions) {
     const key = row.student_id;
     if (!studentIdSet.has(String(key || ""))) continue;
     answeredCountByStudent.set(key, (answeredCountByStudent.get(key) || 0) + 1);
@@ -4883,12 +3915,6 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
       timeCountByStudent.set(key, (timeCountByStudent.get(key) || 0) + 1);
     }
 
-    if (!perDateDoneCountByStudent.has(key)) perDateDoneCountByStudent.set(key, new Map());
-    const dkey = toDateKey(row.assignment_date);
-    if (dkey) {
-      const dmap = perDateDoneCountByStudent.get(key);
-      dmap.set(dkey, (dmap.get(dkey) || 0) + 1);
-    }
   }
   for (const row of alerts || []) {
     const key = row.student_id;
@@ -4912,11 +3938,9 @@ app.get("/api/teacher/overview", ensureCloud, requireAuth, requireRole("teacher"
       (timeCountByStudent.get(student.user_id) || 0) > 0
         ? Math.round((timeSumByStudent.get(student.user_id) || 0) / (timeCountByStudent.get(student.user_id) || 1))
         : 0;
-    const doneDateMap = perDateDoneCountByStudent.get(student.user_id) || new Map();
-    const streakDays = computeLongestStreakDaysFromDateSet(
-      new Set([...doneDateMap.entries()].filter(([, count]) => Number(count) >= 5).map(([dateKey]) => dateKey))
-    );
-    const finishedToday = submitted >= 5;
+    const completedDates = completedByStudent.get(student.user_id);
+    const streakDays = computeLongestStreakDaysFromDateSet(completedDates);
+    const finishedToday = completedDates.has(date);
     const activeAlerts = alertCountByStudent.get(student.user_id) || 0;
 
     return {
@@ -4958,23 +3982,8 @@ app.delete("/api/teacher/students/:studentId/records", ensureCloud, requireAuth,
     return res.status(500).json({ error: accessError.message });
   }
 
-  const { error: submissionError } = await supabase.from("student_submissions").delete().eq("student_id", studentId);
-  if (submissionError) return res.status(500).json({ error: submissionError.message });
-
-  const { error: practiceSubmissionError } = await supabase.from("student_practice_submissions").delete().eq("student_id", studentId);
-  if (practiceSubmissionError && !isMissingTableError(practiceSubmissionError)) {
-    return res.status(500).json({ error: practiceSubmissionError.message });
-  }
-
-  const { error: assignmentError } = await supabase.from("daily_assignments").delete().eq("student_id", studentId);
-  if (assignmentError) return res.status(500).json({ error: assignmentError.message });
-
-  const { error: progressError } = await supabase.from("student_learning_progress").delete().eq("student_id", studentId);
-  if (progressError) return res.status(500).json({ error: progressError.message });
-
-  const { error: alertError } = await supabase.from("learning_alerts").delete().eq("student_id", studentId);
-  if (alertError) return res.status(500).json({ error: alertError.message });
-
+  const { error } = await supabase.rpc("reset_student_daily_records", { p_student_id: studentId });
+  if (error) return res.status(500).json({ error: error.message });
   return res.json({ message: "Student records deleted." });
 });
 
@@ -5001,7 +4010,7 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
   const { data: submissions, error: submissionError } = await supabase
     .from("student_submissions")
     .select(
-      "id, assignment_date, question_id, answer_text, is_correct, submitted_at, time_spent_seconds, problems(question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex)"
+      "id, assignment_date, assignment_id, question_id, answer_text, is_correct, submitted_at, time_spent_seconds, problems(question_type,difficulty,topic,sub_type,grade,latex_code,answer_text,solution_latex)"
     )
     .eq("student_id", studentId)
     .order("submitted_at", { ascending: false });
@@ -5013,7 +4022,7 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
   if (assignmentDates.length) {
     const { data: assignedRows, error: assignedRowsError } = await supabase
       .from("daily_assignments")
-      .select("id,assignment_date,question_id,slot")
+      .select("id,assignment_date,question_id,slot,kind,reason,review_round")
       .eq("student_id", studentId)
       .in("assignment_date", assignmentDates);
     if (assignedRowsError) return res.status(500).json({ error: assignedRowsError.message });
@@ -5035,7 +4044,8 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
       const effectiveSlot = Number(row.slot || 0) || index + 1;
       assignmentMetaByKey.set(`${dateKey}|||${Number(row.question_id || 0)}`, {
         slot: effectiveSlot,
-        affects_learning_progress: effectiveSlot <= 5
+        affects_learning_progress: isMain({ ...row, slot: effectiveSlot }),
+        kind: row.kind, reason: row.reason, review_round: row.review_round
       });
     });
   }
@@ -5044,7 +4054,9 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
     return {
       ...row,
       assignment_slot: meta.slot || null,
-      affects_learning_progress: meta.affects_learning_progress === true
+      affects_learning_progress: meta.affects_learning_progress === true,
+      source_type: meta.kind === "retest" ? "retest" : "daily",
+      assignment: meta
     };
   });
   let practiceRows = [];
@@ -5053,7 +4065,8 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
   } catch (_practiceError) {
     practiceRows = [];
   }
-  const performanceRows = [...rows, ...practiceRows];
+  const mainRows = records.filter(row => row.source_type !== "retest");
+  const performanceRows = [...mainRows, ...practiceRows];
   const stats = computeSubmissionStats(performanceRows);
   let radar = { labels: ["Combo", "Aim", "Flash", "Grind", "Fortune"], student: {}, class_avg: {} };
   let aspectValues = {};
@@ -5061,7 +4074,8 @@ app.get("/api/teacher/students/:studentId/stats", ensureCloud, requireAuth, requ
   let classTitles = [];
   let classmatesPower = [];
   try {
-    const classAnalytics = await buildClassAnalytics(profile.class_name, profile.user_id, performanceRows);
+    const completedDates = (await getCompletedDates([studentId], mainRows.map(row => ({ ...row, student_id: studentId })))).get(studentId);
+    const classAnalytics = await buildClassAnalytics(profile.class_name, profile.user_id, performanceRows, completedDates);
     radar = { labels: classAnalytics.labels, student: classAnalytics.student, class_avg: classAnalytics.class_avg };
     aspectValues = classAnalytics.student_values || {};
     aspectLeaders = classAnalytics.leaders || [];
@@ -5257,11 +4271,12 @@ app.get("/api/teacher/groups", ensureCloud, requireAuth, requireRole("teacher"),
 
   const memberIds = [...new Set((members || []).map((m) => String(m.student_id || "")).filter(Boolean))];
   const { data: submissions, error: submissionError } = memberIds.length
-    ? await supabase.from("student_submissions").select("student_id,is_correct").in("student_id", memberIds)
+    ? await supabase.from("student_submissions").select("student_id,is_correct,assignment:daily_assignments(kind)").in("student_id", memberIds)
     : { data: [], error: null };
   if (submissionError) return res.status(500).json({ error: submissionError.message });
   const statsByStudent = new Map();
   for (const row of submissions || []) {
+    if (row.assignment?.kind === "retest") continue;
     const sid = String(row.student_id || "");
     if (!statsByStudent.has(sid)) statsByStudent.set(sid, { done: 0, correct: 0 });
     const stat = statsByStudent.get(sid);
@@ -5314,11 +4329,12 @@ app.get("/api/teacher/classes", ensureCloud, requireAuth, requireRole("teacher")
   }
   const ids = (students || []).map((s) => String(s.user_id || "")).filter(Boolean);
   const { data: submissions, error: submissionError } = ids.length
-    ? await supabase.from("student_submissions").select("student_id,is_correct").in("student_id", ids)
+    ? await supabase.from("student_submissions").select("student_id,is_correct,assignment:daily_assignments(kind)").in("student_id", ids)
     : { data: [], error: null };
   if (submissionError) return res.status(500).json({ error: submissionError.message });
   const statsByStudent = new Map();
   for (const row of submissions || []) {
+    if (row.assignment?.kind === "retest") continue;
     const sid = String(row.student_id || "");
     if (!statsByStudent.has(sid)) statsByStudent.set(sid, { done: 0, correct: 0 });
     const stat = statsByStudent.get(sid);
@@ -5898,65 +4914,8 @@ app.delete("/api/problems/:id", ensureCloud, requireAdminUploadAccess, async (re
   return res.status(204).send();
 });
 
-async function runMidnightLearningMaintenance() {
-  if (!supabase) return;
-  const today = getTodayDateString();
-  const yesterday = addDaysDateString(today, -1);
-  const { error: unfreezeError } = await supabase
-    .from("student_learning_progress")
-    .update({
-      status: PROGRESS_STATUS.UNKNOWN,
-      is_paused: false,
-      wrong_count: 0,
-      correction_wrong_streak: 0,
-      correction_due_date: null
-    })
-    .eq("status", PROGRESS_STATUS.FROZEN);
-  if (unfreezeError) {
-    console.error("Midnight auto-unfreeze failed:", unfreezeError.message);
-  }
-
-  const { data: frozenAlerts, error: alertError } = await supabase
-    .from("learning_alerts")
-    .select("id")
-    .gte("created_at", `${yesterday}T00:00:00+00:00`)
-    .lt("created_at", `${today}T00:00:00+00:00`)
-    .eq("is_resolved", false);
-  if (alertError) {
-    console.error("Midnight teacher report scan failed:", alertError.message);
-  } else {
-    console.log(`Midnight learning maintenance complete. Open frozen-topic alerts from yesterday: ${(frozenAlerts || []).length}.`);
-  }
-}
-
-function scheduleMidnightLearningMaintenance() {
-  if (!supabase) return;
-  const scheduleNext = () => {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat("en-CA", {
-      timeZone: APP_TIMEZONE,
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: false
-    }).formatToParts(now);
-    const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
-    const currentSeconds = get("hour") * 3600 + get("minute") * 60 + get("second");
-    const delaySeconds = currentSeconds === 0 ? 86400 : 86400 - currentSeconds;
-    setTimeout(async () => {
-      await runMidnightLearningMaintenance().catch((error) => console.error("Midnight learning maintenance failed:", error.message));
-      scheduleNext();
-    }, delaySeconds * 1000).unref?.();
-  };
-  scheduleNext();
-}
-
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
-  scheduleMidnightLearningMaintenance();
   if (!hasCloudConfig) {
     console.log("Missing cloud config. Create .env from .env.example and add Supabase credentials.");
   }

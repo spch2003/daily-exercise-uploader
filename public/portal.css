@@ -59,6 +59,79 @@ body {
   margin: 0 0 0.55rem;
 }
 
+.daily-schedule {
+  margin: 0.6rem 0 1rem;
+  border-block: 1px solid var(--line);
+  padding: 0.6rem 0;
+}
+
+.daily-schedule summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.daily-schedule-day {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.daily-schedule-day summary span {
+  margin-inline-start: 0.6rem;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.daily-schedule-day ul {
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.daily-schedule-day li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 0.55rem;
+  align-items: center;
+  padding: 0.38rem 0;
+}
+
+.daily-schedule-day li small {
+  display: block;
+  color: var(--muted);
+}
+
+.daily-reason {
+  --reason-hue: 217;
+  display: inline-block;
+  align-self: center;
+  border-radius: 999px;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: hsl(var(--reason-hue) 75% 23%);
+  background: hsl(var(--reason-hue) 72% 91%);
+}
+
+.daily-reason[data-reason="review"] { --reason-hue: 273; }
+.daily-reason[data-reason="confirm"] { --reason-hue: 211; }
+.daily-reason[data-reason="learning"] { --reason-hue: 26; }
+.daily-reason[data-reason="backfill"] { --reason-hue: 48; }
+.daily-reason[data-reason="new"] { --reason-hue: 128; }
+.daily-reason[data-reason="advance"] { --reason-hue: 166; }
+.daily-reason[data-reason="retest"] { --reason-hue: 350; }
+
+body[data-student-theme="dark"] .daily-reason {
+  color: hsl(var(--reason-hue) 88% 91%);
+  background: hsl(var(--reason-hue) 48% 28%);
+}
+
+@media (max-width: 540px) {
+  .daily-schedule-day li {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.15rem 0.4rem;
+  }
+}
+
 .profile-tab-strip {
   align-items: flex-end;
   border-bottom: 1px solid #c7d7ec;
